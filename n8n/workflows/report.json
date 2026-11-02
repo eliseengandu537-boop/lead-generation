@@ -1,5 +1,5 @@
 {
-  "name": "Orbit · REPORT",
+  "name": "Concrete · REPORT",
   "active": false,
   "nodes": [
     {
@@ -22,7 +22,7 @@
       "credentials": {
         "httpHeaderAuth": {
           "id": "CONFIGURE_ORBIT_HEADER_AUTH",
-          "name": "Orbit webhook authentication"
+          "name": "Concrete webhook authentication"
         }
       }
     },

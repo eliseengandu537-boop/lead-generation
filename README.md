@@ -1,8 +1,8 @@
-# Orbit
+# Concrete
 
 Multi-tenant business research, lead qualification, approved email campaigns and reply management. This replaces the previous CRM application. All figures come from the new platform's actual records; there is no demonstration mode or sample-business seed.
 
-Live app: [Orbit](https://orbit-lead-generation.onrender.com). Hosting uses Render Free and Neon Free, with automation on the local computer. Real sending still requires the provider and client mailbox configuration below.
+Live app: [Concrete](https://orbit-lead-generation.onrender.com). Hosting uses Render Free and Neon Free, with automation on the local computer. Real sending still requires the provider and client mailbox configuration below.
 
 [Deploy this repository on Render](https://dashboard.render.com/blueprint/new?repo=https://github.com/eliseengandu537-boop/lead-generation). The default Blueprint requests only a free web service. Supply a private connection to a free Neon database, your administrator email and a unique 16+ character password. n8n and the worker run on your computer while it stays online. Free usage limits and provider costs still apply; see [deployment instructions](docs/DEPLOYMENT.md).
 

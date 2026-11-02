@@ -31,7 +31,7 @@ async function main() {
         credentials: {
           httpHeaderAuth: {
             id: "CONFIGURE_ORBIT_HEADER_AUTH",
-            name: "Orbit webhook authentication",
+            name: "Concrete webhook authentication",
           },
         },
       },
@@ -114,7 +114,7 @@ async function main() {
     ];
     const link = (node: string) => ({ node, type: "main", index: 0 });
     const workflow = {
-      name: `Orbit · ${kind}`,
+      name: `Concrete · ${kind}`,
       active: false,
       nodes,
       connections: {

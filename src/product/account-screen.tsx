@@ -4,7 +4,7 @@ import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { ArrowRight, KeyRound, MailCheck } from "lucide-react";
 import { api, text } from "./data";
-import { OrbitMark } from "./primitives";
+import { ConcreteMark } from "./primitives";
 import { ThemeToggle } from "./theme";
 export default function AccountScreen() {
   const search = useSearchParams();
@@ -28,7 +28,7 @@ export default function AccountScreen() {
     "resend-verification": "Your next step is in your inbox.",
   };
   const details: Record<string, string> = {
-    verify: "Confirm your email to activate your Orbit account.",
+    verify: "Confirm your email to activate your Concrete account.",
     reset: "Choose a unique passphrase for your account.",
     "request-reset": "We'll email you a link to reset your password.",
     "resend-verification": "Request a new email verification link.",
@@ -39,8 +39,8 @@ export default function AccountScreen() {
         <ThemeToggle />
       </div>
       <Link href="/login" className="brand">
-        <OrbitMark />
-        <span>ORBIT.</span>
+        <ConcreteMark />
+        <span>CONCRETE.</span>
       </Link>
       <main className="account-card surface" id="main-content">
         <span className="feature-icon">

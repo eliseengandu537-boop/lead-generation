@@ -2,7 +2,7 @@
 
 The application needs a Node web server, PostgreSQL, n8n and a Node queue worker. The selected $0 hosting setup places the web app on Render Free and the database on Neon Free; n8n and the worker run on the user's computer. Automation runs only while that computer is awake and the worker is running. A static website host cannot run this application.
 
-The deployed app is [Orbit](https://orbit-lead-generation.onrender.com). Hosted health, administrator sign-in, desktop/mobile rendering and a complete queued report through local n8n/worker have been verified. Local login details are stored in the ignored `.local/hosted-admin-login.txt`; local n8n login details are in `.local/local-automation-login.txt`. Secrets are not committed. Provider setup below is still required for real email sending.
+The deployed app is [Concrete](https://orbit-lead-generation.onrender.com). Hosted health, administrator sign-in, desktop/mobile rendering and a complete queued report through local n8n/worker have been verified. Local login details are stored in the ignored `.local/hosted-admin-login.txt`; local n8n login details are in `.local/local-automation-login.txt`. Secrets are not committed. Provider setup below is still required for real email sending.
 
 ## Server setup
 
@@ -44,7 +44,7 @@ The runtime SQL roles must be created by the database administrator. Example rol
 
 ## n8n
 
-`npm run n8n:generate` produces twelve inactive workflow exports. Import them into your tested n8n version. In every webhook, select an HTTP Header Auth credential named `Orbit webhook authentication`, header name `X-Orbit-Secret`, value equal to the platform's `N8N_WEBHOOK_SECRET`. Replace the exported placeholder credential reference. Validate the nodes and activate the workflows. Use the production `/webhook/orbit-...` paths, not test-webhook paths.
+`npm run n8n:generate` produces twelve inactive workflow exports. Import them into your tested n8n version. In every webhook, select an HTTP Header Auth credential named `Concrete webhook authentication`, header name `X-Orbit-Secret`, value equal to the platform's `N8N_WEBHOOK_SECRET`. Replace the exported placeholder credential reference. Validate the nodes and activate the workflows. Use the production `/webhook/orbit-...` paths, not test-webhook paths.
 
 Each workflow receives only job identity and a job-scoped token. It asks the platform to admit the durable job, waits, and polls the actual status until terminal. The authenticated HTTP request returns quickly; the Node worker performs the lengthy operation. A workflow never writes invented success results. Retain execution timeouts and disable successful/error execution payload retention because job capabilities are sensitive.
 

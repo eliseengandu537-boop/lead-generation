@@ -4,7 +4,7 @@
 
 The previous application used Next.js 15 App Router, React 19, TypeScript, Prisma 6, PostgreSQL, NextAuth credentials/JWT sessions, bcrypt, encrypted provider credentials, a Node worker and Docker deployment definitions. It had 37 public database tables at backup time. No Git repository or configured public deployment was present in the workspace.
 
-The replacement retains the generic authentication, identity-token, cryptography, database and tenant infrastructure. The active application, navigation, components, business services, old API routes and previous workflows were removed and replaced with Orbit. Old user accounts, credentials, database contents and deployment storage remain preserved.
+The replacement retains the generic authentication, identity-token, cryptography, database and tenant infrastructure. The active application, navigation, components, business services, old API routes and previous workflows were removed and replaced with Concrete. Old user accounts, credentials, database contents and deployment storage remain preserved.
 
 ## Verified backup before removal
 
@@ -18,7 +18,7 @@ Historical tables and migrations remain for recovery; the active Prisma schema d
 
 | Area           | Implementation                                                                                                                                                                                               |
 | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Application    | `src/app` and `src/product`: new Orbit login, workspace selection, overview, research, leads, campaigns, inbox, templates, analytics, website, email, notifications, team, billing and settings              |
+| Application    | `src/app` and `src/product`: new Concrete login, workspace selection, overview, research, leads, campaigns, inbox, templates, analytics, website, email, notifications, team, billing and settings              |
 | Auth           | Existing user identities, bcrypt, eight-hour JWT sessions, session version invalidation, hashed single-use verification/reset tokens and encrypted transactional outbox                                      |
 | Tenant data    | New `Platform*` models; independent organizations, encrypted provider credentials, leads, approvals, campaigns, mailbox messages, feedback, reports, usage and subscriptions                                 |
 | Isolation      | PostgreSQL FORCE RLS; restricted pool; opaque, expiring database capabilities bound after server-side membership authorization; SQL cannot select a tenant using a fabricated plain setting                  |

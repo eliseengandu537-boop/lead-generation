@@ -2,9 +2,9 @@ import type { Metadata } from "next";
 import "./globals.css";
 import { ThemeProvider } from "@/product/theme";
 export const metadata: Metadata = {
-  title: "Orbit — Business Intelligence & Outreach",
+  title: "Concrete — Business Intelligence & Outreach",
   description:
-    "Understand your business, discover relevant customers and build thoughtful email outreach with Orbit.",
+    "Understand your business, discover relevant customers and build thoughtful email outreach with Concrete.",
 };
 export default function RootLayout({
   children,

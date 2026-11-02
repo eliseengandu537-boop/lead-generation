@@ -1,5 +1,5 @@
 {
-  "name": "Orbit · SYNC_MAILBOX",
+  "name": "Concrete · SYNC_MAILBOX",
   "active": false,
   "nodes": [
     {
@@ -22,7 +22,7 @@
       "credentials": {
         "httpHeaderAuth": {
           "id": "CONFIGURE_ORBIT_HEADER_AUTH",
-          "name": "Orbit webhook authentication"
+          "name": "Concrete webhook authentication"
         }
       }
     },

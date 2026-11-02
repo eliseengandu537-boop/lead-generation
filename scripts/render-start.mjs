@@ -49,7 +49,7 @@ main().catch(() => {
   // Prisma role errors can embed the credential-bearing SQL. Keep bootstrap
   // details out of logs; required variable names are documented in the repo.
   console.error(
-    "Orbit deployment startup failed. Check database permissions, migration status, public HTTPS URL and required Render secret settings.",
+    "Concrete deployment startup failed. Check database permissions, migration status, public HTTPS URL and required Render secret settings.",
   );
   process.exitCode = 1;
 });

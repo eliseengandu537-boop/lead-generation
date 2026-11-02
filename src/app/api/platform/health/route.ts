@@ -5,7 +5,7 @@ export async function GET() {
   try {
     await db.$queryRaw`SELECT 1`;
     await assertTenantDatabase();
-    return NextResponse.json({ status: "ok", product: "Orbit" });
+    return NextResponse.json({ status: "ok", product: "Concrete" });
   } catch {
     return NextResponse.json({ status: "unavailable" }, { status: 503 });
   }

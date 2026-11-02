@@ -41,7 +41,7 @@ import {
   Badge,
   Empty,
   Loading,
-  OrbitMark,
+  ConcreteMark,
   SectionHeading,
   type Dialog,
 } from "./primitives";
@@ -778,9 +778,9 @@ export default function AdminScreen() {
       <aside className="sidebar admin-sidebar" aria-label="Platform navigation">
         <div className="sidebar-brand">
           <Link href="/admin" className="brand">
-            <OrbitMark />
+            <ConcreteMark />
             <span>
-              ORBIT<span className="brand-dot">.</span>
+              CONCRETE<span className="brand-dot">.</span>
             </span>
           </Link>
           <button
@@ -957,7 +957,7 @@ export default function AdminScreen() {
                       </h2>
                       <p>
                         A precise perspective on the clients, conversations and
-                        opportunities moving through ORBIT.
+                        opportunities moving through CONCRETE.
                       </p>
                     </div>
                     <div className="admin-intro-stat">

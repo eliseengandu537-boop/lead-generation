@@ -33,7 +33,7 @@ import {
   type RecordValue,
   type SessionView,
 } from "./data";
-import { ActionDialog, type Dialog, Loading, OrbitMark } from "./primitives";
+import { ActionDialog, type Dialog, Loading, ConcreteMark } from "./primitives";
 import { ResourceView } from "./views";
 import { ThemeToggle } from "./theme";
 
@@ -55,7 +55,7 @@ const navigation = [
 ];
 const groups = ["INTELLIGENCE", "WORKSPACE"];
 
-export default function OrbitApp() {
+export default function ConcreteApp() {
   const [session, setSession] = useState<SessionView | null>(null);
   const [organizationId, setOrganizationId] = useState("");
   const [tab, setTab] = useState("overview");
@@ -159,7 +159,7 @@ export default function OrbitApp() {
   }
   function createOrganization() {
     setDialog({
-      title: "Bring your business into Orbit",
+      title: "Bring your business into Concrete",
       detail:
         "Your business gets its own leads, campaigns, email accounts and team.",
       fields: [
@@ -192,10 +192,10 @@ export default function OrbitApp() {
         />
       )}
       <aside className={`sidebar ${mobile ? "is-open" : ""}`}>
-        <Link href="/" className="brand" aria-label="Orbit home">
-          <OrbitMark />
+        <Link href="/" className="brand" aria-label="Concrete home">
+          <ConcreteMark />
           <span>
-            ORBIT<span className="brand-dot">.</span>
+            CONCRETE<span className="brand-dot">.</span>
           </span>
         </Link>
         <div className="organization-picker">
@@ -334,8 +334,8 @@ export default function OrbitApp() {
             <Loading />
           ) : !organization ? (
             <div className="welcome-empty">
-              <OrbitMark />
-              <p className="eyebrow">WELCOME TO ORBIT</p>
+              <ConcreteMark />
+              <p className="eyebrow">WELCOME TO CONCRETE</p>
               <h1>Your intelligence workspace.</h1>
               <p>
                 Create a business workspace to discover the right prospects and
@@ -362,8 +362,8 @@ export default function OrbitApp() {
         </main>
         <footer className="workspace-footer">
           <span>
-            <OrbitMark small />
-            ORBIT
+            <ConcreteMark small />
+            CONCRETE
           </span>
           <p>Business intelligence. Deliberate outreach.</p>
           <span>Private to your organization</span>

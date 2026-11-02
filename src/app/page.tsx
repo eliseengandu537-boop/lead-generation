@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { currentUser, HttpError } from "@/lib/auth";
-import OrbitApp from "@/product/shell";
+import ConcreteApp from "@/product/shell";
 export default async function HomePage({
   searchParams,
 }: {
@@ -13,5 +13,5 @@ export default async function HomePage({
     if (error instanceof HttpError && error.status === 401) redirect("/login");
     throw error;
   }
-  return <OrbitApp />;
+  return <ConcreteApp />;
 }

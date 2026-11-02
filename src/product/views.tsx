@@ -296,7 +296,7 @@ function Discovery({ data, act, canManage, navigate }: ViewProps) {
               Better connections.
             </h3>
             <p>
-              Orbit uses your website and approved business profile to
+              Concrete uses your website and approved business profile to
               understand what you offer and who would benefit.
             </p>
             <button
@@ -670,7 +670,7 @@ function Leads({ data, act, openDialog, canManage, organization }: ViewProps) {
             )}
           </select>
           <button
-            onClick={() => downloadCsv("orbit-leads.csv", visible)}
+            onClick={() => downloadCsv("concrete-leads.csv", visible)}
             disabled={!visible.length}
           >
             <ArrowDownToLine size={15} />
@@ -2042,7 +2042,7 @@ function Reports({ data, organization }: ViewProps) {
             <button
               onClick={() =>
                 downloadCsv(
-                  "orbit-performance.csv",
+                  "concrete-performance.csv",
                   series.length ? series : [metrics],
                 )
               }

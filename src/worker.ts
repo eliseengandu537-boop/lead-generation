@@ -18,7 +18,7 @@ async function main() {
     throw new Error("WORKER_POLL_MS must be between 3000 and 900000");
   await assertTenantDatabase();
   console.log(
-    "Orbit worker started. Provider work requires authenticated n8n admission; real email also requires explicit client approval.",
+    "Concrete worker started. Provider work requires authenticated n8n admission; real email also requires explicit client approval.",
   );
   while (!stopping) {
     try {
@@ -38,7 +38,7 @@ async function main() {
 }
 main().catch(() => {
   console.error(
-    "Orbit worker could not initialize. Check database configuration.",
+    "Concrete worker could not initialize. Check database configuration.",
   );
   process.exitCode = 1;
 });
