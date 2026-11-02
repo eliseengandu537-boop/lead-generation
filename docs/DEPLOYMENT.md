@@ -2,6 +2,8 @@
 
 The application needs a Node web server, PostgreSQL, n8n and a Node queue worker. The selected $0 hosting setup places the web app on Render Free and the database on Neon Free; n8n and the worker run on the user's computer. Automation runs only while that computer is awake and the worker is running. A static website host cannot run this application.
 
+The deployed app is [Orbit](https://orbit-lead-generation.onrender.com). Hosted health, administrator sign-in, desktop/mobile rendering and a complete queued report through local n8n/worker have been verified. Local login details are stored in the ignored `.local/hosted-admin-login.txt`; local n8n login details are in `.local/local-automation-login.txt`. Secrets are not committed. Provider setup below is still required for real email sending.
+
 ## Server setup
 
 ### Render deployment
@@ -19,6 +21,8 @@ After signing in, remove `BOOTSTRAP_ADMIN_PASSWORD` from the web service's envir
 ### Local automation for the hosted app
 
 Use a separate ignored `.local/hosted-worker.env`; do not overwrite the existing `.env`. It contains the same hosted `DATABASE_URL`, `NEXTAUTH_SECRET`, `PLATFORM_ENCRYPTION_SEED`, `TENANT_DATABASE_PASSWORD`, and `N8N_WEBHOOK_SECRET`, plus `NEXTAUTH_URL` set to the actual public app origin. Add a stable random `N8N_ENCRYPTION_KEY`, `N8N_BASE_URL=http://127.0.0.1:5678`, `ORBIT_AUTOMATION_LOCATION=local`, `WORKER_POLL_MS=60000`, and `LIVE_EMAIL_ENABLED=false`. Copy configured Google/verification/transactional provider settings privately when those become available. Bootstrap administrator credentials are not needed by the worker.
+
+The launcher derives the restricted database URL and shared encryption key exclusively from that private hosted configuration. It clears unrelated inherited platform settings and explicitly sets the control URL so Prisma cannot import the original local database settings. It uses Neon's pooled hostname for local worker connections, while web migration/bootstrap retains the direct database URL.
 
 `npm run automation:check` validates configuration without starting work. `npm run automation:start` starts the dedicated `orbit-local-automation` Docker Compose project with `docker-compose.n8n.local.yml` and then the queue worker. n8n's editor is available only at `http://localhost:5678`; its separate named volume preserves workflows and credentials. Set up its local owner, import the twelve workflow exports, configure the shared header credential, and publish each workflow. Verify webhook authentication and a harmless queued report before claiming activation. No public tunnel, router port forwarding, or cloud worker is required: the local worker calls local n8n, and n8n calls the hosted app's capability-protected admission/status endpoints.
 
