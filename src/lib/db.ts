@@ -14,11 +14,14 @@ const globalDb = globalThis as unknown as DatabaseGlobals;
 // use this control pool. db switches to the restricted pool after tenant().
 export const controlDb =
   globalDb.prisma ??
-  new PrismaClient(
-    process.env.CONTROL_DATABASE_URL
+  new PrismaClient({
+    ...(process.env.CONTROL_DATABASE_URL
       ? { datasourceUrl: process.env.CONTROL_DATABASE_URL }
-      : undefined,
-  );
+      : {}),
+    // Local workers can connect to a distant, suspended free database. Keep
+    // queue-claim transactions bounded without the five-second default.
+    transactionOptions: { maxWait: 10_000, timeout: 30_000 },
+  });
 if (process.env.NODE_ENV !== "production") globalDb.prisma = controlDb;
 
 function tenantClient() {

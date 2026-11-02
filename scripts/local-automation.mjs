@@ -2,10 +2,8 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { parseEnv } from "node:util";
 import { spawn } from "node:child_process";
-import {
-  renderRuntimeEnvironment,
-  waitForRenderDatabase,
-} from "./render-runtime.mjs";
+import { waitForRenderDatabase } from "./render-runtime.mjs";
+import { localAutomationEnvironment } from "./local-runtime.mjs";
 
 const mode = process.argv[2] || "check";
 const configPath = resolve(".local/hosted-worker.env");
@@ -45,13 +43,7 @@ async function main() {
       "The hosted worker is not connected yet. Configure .local/hosted-worker.env; your existing .env is preserved.",
     );
   }
-  const env = renderRuntimeEnvironment({
-    ...process.env,
-    ...stored,
-    NODE_ENV: "production",
-    ORBIT_AUTOMATION_LOCATION: "local",
-    WORKER_POLL_MS: stored.WORKER_POLL_MS || "60000",
-  });
+  const env = localAutomationEnvironment(stored);
   const n8n = new URL(env.N8N_BASE_URL || "http://127.0.0.1:5678");
   if (
     n8n.origin !== "http://127.0.0.1:5678" ||
@@ -70,8 +62,6 @@ async function main() {
     throw new Error(
       "Configure stable n8n authentication and encryption secrets",
     );
-  delete env.BOOTSTRAP_ADMIN_PASSWORD;
-  delete env.BOOTSTRAP_ADMIN_EMAIL;
   if (mode === "check") {
     console.log(
       "Local worker configuration is valid. Connectivity and workflow activation must be verified separately.",

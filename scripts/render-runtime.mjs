@@ -25,6 +25,8 @@ export function renderRuntimeEnvironment(input = process.env) {
     throw new Error(
       "Configure a stable encryption key or generated encryption seed",
     );
+  for (const key of ["connect_timeout", "pool_timeout"])
+    if (!owner.searchParams.has(key)) owner.searchParams.set(key, "30");
   if (!env.TENANT_DATABASE_URL) {
     if (
       !env.TENANT_DATABASE_PASSWORD ||
@@ -45,6 +47,7 @@ export function renderRuntimeEnvironment(input = process.env) {
 export async function bootstrapRenderDatabase(env) {
   const database = new PrismaClient({
     datasourceUrl: env.CONTROL_DATABASE_URL || env.DATABASE_URL,
+    transactionOptions: { maxWait: 10_000, timeout: 30_000 },
   });
   try {
     // This is the dedicated deployment owner connection. Tenant traffic never
@@ -59,12 +62,28 @@ export async function bootstrapRenderDatabase(env) {
         throw new Error("Invalid runtime database password configuration");
       await database.$transaction(async (tx) => {
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('orbit-runtime-provisioning'))`;
-        const exists =
-          await tx.$queryRaw`SELECT rolname FROM pg_roles WHERE rolname = ${tenantRole}`;
+        const existing =
+          await tx.$queryRaw`SELECT rolname, rolsuper, rolbypassrls, rolcreatedb, rolcreaterole, rolreplication, rolcanlogin, rolinherit FROM pg_roles WHERE rolname = ${tenantRole}`;
+        const role = existing[0];
+        if (
+          role &&
+          (role.rolsuper ||
+            role.rolbypassrls ||
+            role.rolcreatedb ||
+            role.rolcreaterole ||
+            role.rolreplication ||
+            !role.rolcanlogin ||
+            !role.rolinherit)
+        )
+          throw new Error(
+            "The existing tenant login has unexpected privileges",
+          );
         // Fixed role identifier, escaped SQL literal; never log this statement.
         const literal = "'" + password.replaceAll("'", "''") + "'";
         await tx.$executeRawUnsafe(
-          `${exists.length ? "ALTER" : "CREATE"} ROLE orbit_tenant_runtime LOGIN INHERIT NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE NOREPLICATION PASSWORD ${literal}`,
+          role
+            ? `ALTER ROLE orbit_tenant_runtime PASSWORD ${literal}`
+            : `CREATE ROLE orbit_tenant_runtime LOGIN INHERIT NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE NOREPLICATION PASSWORD ${literal}`,
         );
         await tx.$executeRawUnsafe(
           "REVOKE crm_control FROM orbit_tenant_runtime",

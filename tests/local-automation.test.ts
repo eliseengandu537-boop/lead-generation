@@ -1,6 +1,42 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { orchestrationConfig, dispatchOneJob } from "../src/platform/jobs";
+import { createHash } from "node:crypto";
+
+test("the hosted worker cannot inherit local database or encryption credentials", async () => {
+  const { localAutomationEnvironment } =
+    await import("../scripts/local-runtime.mjs");
+  const stored = {
+    DATABASE_URL:
+      "postgresql://owner:fixture@ep-fixture.eu-central-1.aws.neon.tech/orbit?sslmode=require",
+    NEXTAUTH_URL: "https://orbit.onrender.com",
+    NEXTAUTH_SECRET: "a".repeat(44),
+    PLATFORM_ENCRYPTION_SEED: "b".repeat(44),
+    TENANT_DATABASE_PASSWORD: "c".repeat(44),
+  };
+  const env = localAutomationEnvironment(stored, {
+    PATH: "system-path",
+    TENANT_DATABASE_URL: "postgresql://unrelated@localhost/old",
+    CONTROL_DATABASE_URL: "postgresql://unrelated@localhost/old",
+    ENCRYPTION_KEY: "d".repeat(64),
+    GOOGLE_CLIENT_SECRET: "unrelated-local-secret",
+    BOOTSTRAP_ADMIN_PASSWORD: "unrelated-password",
+    LIVE_EMAIL_ENABLED: "true",
+  });
+  const tenant = new URL(env.TENANT_DATABASE_URL!);
+  assert.equal(tenant.hostname, "ep-fixture-pooler.eu-central-1.aws.neon.tech");
+  assert.equal(tenant.username, "orbit_tenant_runtime");
+  assert.equal(env.CONTROL_DATABASE_URL, env.DATABASE_URL);
+  assert.equal(
+    env.ENCRYPTION_KEY,
+    createHash("sha256").update(stored.PLATFORM_ENCRYPTION_SEED).digest("hex"),
+  );
+  assert.equal(env.GOOGLE_CLIENT_SECRET, "");
+  assert.equal(env.BOOTSTRAP_ADMIN_PASSWORD, "");
+  assert.equal(env.LIVE_EMAIL_ENABLED, "false");
+  assert.equal(env.PATH, "system-path");
+  assert.equal(new URL(stored.DATABASE_URL).hostname.includes("pooler"), false);
+});
 
 test("local automation keeps admission authentication on the web without dispatching to a fake endpoint", async () => {
   const keys = [
