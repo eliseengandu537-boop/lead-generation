@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   accountEmailConfig,
+  accountEmailConfigured,
   accountEmailRetryWindowMs,
   deliverAccountEmail,
 } from "../src/lib/account-email";
@@ -58,6 +59,130 @@ test("account email requires the selected provider's key and a valid sender", ()
       IDENTITY_FROM_EMAIL: brevo.sender,
     })?.provider,
     "RESEND",
+  );
+});
+
+test("SMTP requires encrypted transport settings and credentials", () => {
+  const env = {
+    IDENTITY_EMAIL_PROVIDER: "SMTP",
+    IDENTITY_FROM_EMAIL: "owner@example.com",
+    SMTP_HOST: "smtp-relay.brevo.com",
+    SMTP_PORT: "587",
+    SMTP_SECURE: "false",
+    SMTP_USER: "fixture@smtp-brevo.com",
+    SMTP_PASSWORD: "fixture-private-smtp-key",
+  };
+  assert.equal(accountEmailConfig(env)?.provider, "SMTP");
+  for (const change of [
+    { SMTP_PASSWORD: "" },
+    { SMTP_USER: "" },
+    { SMTP_PORT: "25" },
+    { SMTP_SECURE: "true" },
+    { SMTP_HOST: "localhost" },
+    { SMTP_HOST: "https://smtp-relay.brevo.com" },
+    { SMTP_PASSWORD: "key\r\ninjected" },
+  ])
+    assert.equal(accountEmailConfig({ ...env, ...change }), null);
+  assert.equal(
+    accountEmailConfig({ ...env, SMTP_PORT: "465", SMTP_SECURE: "true" })
+      ?.provider,
+    "SMTP",
+  );
+  assert.equal(
+    accountEmailConfigured({
+      IDENTITY_EMAIL_PROVIDER: "SMTP",
+      IDENTITY_FROM_EMAIL: env.IDENTITY_FROM_EMAIL,
+    }),
+    false,
+  );
+  assert.equal(
+    accountEmailConfigured({
+      IDENTITY_EMAIL_PROVIDER: "SMTP",
+      IDENTITY_FROM_EMAIL: env.IDENTITY_FROM_EMAIL,
+      IDENTITY_SMTP_READY: "true",
+    }),
+    true,
+  );
+  assert.equal(
+    accountEmailConfig({
+      IDENTITY_EMAIL_PROVIDER: "SMTP",
+      IDENTITY_FROM_EMAIL: env.IDENTITY_FROM_EMAIL,
+      IDENTITY_SMTP_READY: "true",
+    }),
+    null,
+  );
+});
+
+test("SMTP confirms the intended recipient and keeps uncertain sends out of automatic replay", async () => {
+  const { deliverSmtpAccountEmail, smtpTransportOptions } =
+    await import("../src/lib/account-smtp");
+  const config = {
+    provider: "SMTP" as const,
+    sender: "owner@example.com",
+    host: "smtp-relay.brevo.com",
+    port: 587,
+    secure: false,
+    username: "fixture@smtp-brevo.com",
+    password: "fixture-private-smtp-key",
+  };
+  const options = smtpTransportOptions(config);
+  assert.equal(options.requireTLS, true);
+  assert.equal(options.tls?.rejectUnauthorized, true);
+  assert.equal(options.logger, false);
+  assert.equal(options.disableFileAccess, true);
+  assert.equal(options.disableUrlAccess, true);
+  let closed = 0;
+  let attempts = 0;
+  const identifiers: string[] = [];
+  const successful = () => ({
+    sendMail: async (mail: {
+      messageId?: string;
+      from?: unknown;
+      to?: unknown;
+    }) => {
+      attempts++;
+      assert.equal(mail.to, message.to);
+      assert.deepEqual(mail.from, { name: "Concrete", address: config.sender });
+      identifiers.push(mail.messageId || "");
+      return { accepted: [message.to], rejected: [] };
+    },
+    close: () => {
+      closed++;
+    },
+  });
+  assert.deepEqual(await deliverSmtpAccountEmail(config, message, successful), {
+    accepted: true,
+    duplicate: false,
+  });
+  await deliverSmtpAccountEmail(config, message, successful);
+  assert.equal(identifiers[0], identifiers[1]);
+  assert.match(identifiers[0], /^<[a-f0-9]{64}@example\.com>$/);
+  await assert.rejects(
+    deliverSmtpAccountEmail(config, message, () => ({
+      sendMail: async () => {
+        attempts++;
+        throw new Error(config.password);
+      },
+      close: () => {
+        closed++;
+      },
+    })),
+    (error) =>
+      error instanceof Error &&
+      /automatic replay is blocked/.test(error.message) &&
+      !error.message.includes(config.password),
+  );
+  assert.equal(attempts, 3);
+  assert.equal(closed, 3);
+  await assert.rejects(
+    deliverSmtpAccountEmail(config, message, () => ({
+      sendMail: async () => ({
+        accepted: ["different@example.com"],
+        rejected: [],
+      }),
+      close: () => {},
+    })),
+    /not confirmed/,
   );
 });
 

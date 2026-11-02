@@ -3,11 +3,12 @@ import { db } from "./db";
 import { hash, secret, encrypt, decrypt } from "./security";
 import {
   accountEmailConfig,
+  accountEmailConfigured,
   accountEmailRetryWindowMs,
   deliverAccountEmail,
 } from "./account-email";
 export function identityEmailConfigured() {
-  return Boolean(accountEmailConfig());
+  return accountEmailConfigured();
 }
 export async function identityToken(
   tx: Prisma.TransactionClient,
@@ -43,6 +44,19 @@ export async function identityToken(
 export async function sendIdentityEmails() {
   const config = accountEmailConfig();
   if (!config) return;
+  const smtp = config.provider === "SMTP";
+  if (smtp) {
+    // SMTP has no idempotency contract. A worker restart must never replay a
+    // message that may already have been accepted by the provider.
+    await db.identityEmail.updateMany({
+      where: { status: "SENDING", runAt: { lte: new Date() } },
+      data: {
+        status: "FAILED",
+        error:
+          "SMTP delivery outcome is uncertain. Request a fresh account link.",
+      },
+    });
+  }
   // Never retry outside the selected provider's deduplication window.
   await db.identityEmail.updateMany({
     where: {
@@ -54,16 +68,18 @@ export async function sendIdentityEmails() {
     data: { status: "FAILED", error: "Expired. Request a new account link." },
   });
   const item = await db.$transaction(async (tx) => {
-    const rows = await tx.$queryRaw<
-      { id: string }[]
-    >`SELECT id FROM "IdentityEmail" WHERE status IN ('PENDING','SENDING') AND "runAt" <= CURRENT_TIMESTAMP AND attempts < 5 ORDER BY "createdAt" FOR UPDATE SKIP LOCKED LIMIT 1`;
+    const rows = await tx.$queryRaw<{ id: string }[]>(
+      smtp
+        ? Prisma.sql`SELECT id FROM "IdentityEmail" WHERE status='PENDING' AND attempts=0 AND "runAt" <= CURRENT_TIMESTAMP ORDER BY "createdAt" FOR UPDATE SKIP LOCKED LIMIT 1`
+        : Prisma.sql`SELECT id FROM "IdentityEmail" WHERE status IN ('PENDING','SENDING') AND "runAt" <= CURRENT_TIMESTAMP AND attempts < 5 ORDER BY "createdAt" FOR UPDATE SKIP LOCKED LIMIT 1`,
+    );
     if (!rows[0]) return null;
     return tx.identityEmail.update({
       where: { id: rows[0].id },
       data: {
         status: "SENDING",
         attempts: { increment: 1 },
-        runAt: new Date(Date.now() + 60000),
+        runAt: new Date(Date.now() + (smtp ? 120000 : 60000)),
       },
     });
   });
@@ -83,9 +99,11 @@ export async function sendIdentityEmails() {
     await db.identityEmail.update({
       where: { id: item.id },
       data: {
-        status: item.attempts >= 5 ? "FAILED" : "PENDING",
+        status: smtp || item.attempts >= 5 ? "FAILED" : "PENDING",
         runAt: new Date(Date.now() + 2 ** item.attempts * 60000),
-        error: "Account email failed. Check provider configuration and retry.",
+        error: smtp
+          ? "SMTP delivery was not confirmed. Request a fresh account link."
+          : "Account email failed. Check provider configuration and retry.",
       },
     });
   }

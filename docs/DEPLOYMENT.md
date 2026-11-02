@@ -26,6 +26,10 @@ Resend requires a verified domain. Brevo can temporarily rewrite a verified Gmai
 
 Keep pending account email drained or expired before changing providers. Brevo retries expire after ten minutes, inside its provider deduplication period; Resend retries expire after six hours. After an expired email, request a fresh verification/reset link. This setting controls account emails only; client campaign mail still uses each client's authorised mailbox.
 
+SMTP is also supported for account email. For Brevo SMTP, use `IDENTITY_EMAIL_PROVIDER=SMTP`, `SMTP_HOST=smtp-relay.brevo.com`, `SMTP_PORT=587`, `SMTP_SECURE=false`, the Login shown in Brevo's SMTP tab as `SMTP_USER`, and a generated SMTP key as `SMTP_PASSWORD`. Keep these credentials only in the private local worker configuration. Port 587 requires STARTTLS and validated certificates; port 465 requires `SMTP_SECURE=true`.
+
+Render Free blocks standard SMTP ports, so SMTP delivery runs on the local worker. After the local connection and an actual test message pass, set only `IDENTITY_EMAIL_PROVIDER=SMTP`, the verified `IDENTITY_FROM_EMAIL`, and `IDENTITY_SMTP_READY=true` on Render. This enables registration to enqueue mail without copying the SMTP key to the web service. The computer and worker must stay online to deliver queued messages. SMTP has no guaranteed deduplication: uncertain or interrupted attempts are marked failed and are never automatically resent. Request a fresh account link after such a failure.
+
 ### Local automation for the hosted app
 
 Use a separate ignored `.local/hosted-worker.env`; do not overwrite the existing `.env`. It contains the same hosted `DATABASE_URL`, `NEXTAUTH_SECRET`, `PLATFORM_ENCRYPTION_SEED`, `TENANT_DATABASE_PASSWORD`, and `N8N_WEBHOOK_SECRET`, plus `NEXTAUTH_URL` set to the actual public app origin. Add a stable random `N8N_ENCRYPTION_KEY`, `N8N_BASE_URL=http://127.0.0.1:5678`, `ORBIT_AUTOMATION_LOCATION=local`, `WORKER_POLL_MS=60000`, and `LIVE_EMAIL_ENABLED=false`. Copy configured Google/verification/transactional provider settings privately when those become available. Bootstrap administrator credentials are not needed by the worker.

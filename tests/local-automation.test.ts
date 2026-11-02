@@ -22,6 +22,8 @@ test("the hosted worker cannot inherit local database or encryption credentials"
     GOOGLE_CLIENT_SECRET: "unrelated-local-secret",
     BREVO_API_KEY: "unrelated-account-email-key",
     IDENTITY_EMAIL_PROVIDER: "BREVO",
+    SMTP_PASSWORD: "unrelated-smtp-password",
+    IDENTITY_SMTP_READY: "true",
     BOOTSTRAP_ADMIN_PASSWORD: "unrelated-password",
     LIVE_EMAIL_ENABLED: "true",
   });
@@ -36,6 +38,8 @@ test("the hosted worker cannot inherit local database or encryption credentials"
   assert.equal(env.GOOGLE_CLIENT_SECRET, "");
   assert.equal(env.BREVO_API_KEY, "");
   assert.equal(env.IDENTITY_EMAIL_PROVIDER, "");
+  assert.equal(env.SMTP_PASSWORD, "");
+  assert.equal(env.IDENTITY_SMTP_READY, "");
   assert.equal(env.BOOTSTRAP_ADMIN_PASSWORD, "");
   assert.equal(env.LIVE_EMAIL_ENABLED, "false");
   assert.equal(env.PATH, "system-path");

@@ -1,11 +1,23 @@
 import { createHash } from "node:crypto";
 import { z } from "zod";
 
-export type AccountEmailConfig = {
-  provider: "RESEND" | "BREVO";
-  apiKey: string;
+export type SmtpAccountEmailConfig = {
+  provider: "SMTP";
   sender: string;
+  host: string;
+  port: number;
+  secure: boolean;
+  username: string;
+  password: string;
 };
+
+export type AccountEmailConfig =
+  | SmtpAccountEmailConfig
+  | {
+      provider: "RESEND" | "BREVO";
+      apiKey: string;
+      sender: string;
+    };
 
 export function accountEmailConfig(
   env: Record<string, string | undefined> = process.env,
@@ -13,13 +25,47 @@ export function accountEmailConfig(
   const provider = (env.IDENTITY_EMAIL_PROVIDER || "RESEND")
     .trim()
     .toUpperCase();
+  const sender = env.IDENTITY_FROM_EMAIL?.trim();
+  if (!sender || !z.email().safeParse(sender).success) return null;
+  if (provider === "SMTP") {
+    const host = env.SMTP_HOST?.trim().toLowerCase();
+    const port = Number(env.SMTP_PORT || "587");
+    const secure = env.SMTP_SECURE === "true";
+    const username = env.SMTP_USER?.trim();
+    const password = env.SMTP_PASSWORD;
+    if (
+      !host ||
+      !/^(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,63}$/.test(host) ||
+      ![465, 587, 2525].includes(port) ||
+      secure !== (port === 465) ||
+      !username ||
+      /[\r\n]/.test(username) ||
+      !password?.trim() ||
+      /[\r\n]/.test(password)
+    )
+      return null;
+    return { provider, sender, host, port, secure, username, password };
+  }
   if (provider !== "RESEND" && provider !== "BREVO") return null;
   const apiKey = (
     provider === "BREVO" ? env.BREVO_API_KEY : env.RESEND_API_KEY
   )?.trim();
-  const sender = env.IDENTITY_FROM_EMAIL?.trim();
-  if (!apiKey || !sender || !z.email().safeParse(sender).success) return null;
+  if (!apiKey) return null;
   return { provider, apiKey, sender };
+}
+
+/** The hosted web process queues mail after the local worker has passed a real
+ * SMTP test. Its environment does not need the worker's SMTP password. */
+export function accountEmailConfigured(
+  env: Record<string, string | undefined> = process.env,
+) {
+  if (
+    env.IDENTITY_EMAIL_PROVIDER?.trim().toUpperCase() === "SMTP" &&
+    env.IDENTITY_SMTP_READY === "true" &&
+    z.email().safeParse(env.IDENTITY_FROM_EMAIL?.trim()).success
+  )
+    return true;
+  return Boolean(accountEmailConfig(env));
 }
 
 export function accountEmailRetryWindowMs(
@@ -43,6 +89,10 @@ export async function deliverAccountEmail(
   message: { id: string; to: string; subject: string; body: string },
   request: typeof fetch = fetch,
 ) {
+  if (config.provider === "SMTP") {
+    const { deliverSmtpAccountEmail } = await import("./account-smtp");
+    return deliverSmtpAccountEmail(config, message);
+  }
   const brevo = config.provider === "BREVO";
   const response = await request(
     brevo
