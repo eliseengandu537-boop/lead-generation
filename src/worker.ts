@@ -1,12 +1,16 @@
 import { workerTick } from "./platform/worker";
 import { sendIdentityEmails } from "./lib/identity";
 import { db, assertTenantDatabase } from "./lib/db";
+import { setTimeout as pause } from "node:timers/promises";
 let stopping = false;
+const shutdown = new AbortController();
 process.on("SIGINT", () => {
   stopping = true;
+  shutdown.abort();
 });
 process.on("SIGTERM", () => {
   stopping = true;
+  shutdown.abort();
 });
 async function main() {
   const interval = Number(process.env.WORKER_POLL_MS || 3000);
@@ -26,7 +30,9 @@ async function main() {
       );
     }
     if (!stopping)
-      await new Promise((resolve) => setTimeout(resolve, interval));
+      await pause(interval, undefined, { signal: shutdown.signal }).catch(
+        () => {},
+      );
   }
   await db.$disconnect();
 }
