@@ -18,6 +18,14 @@ The web startup command applies migrations, provisions the restricted tenant log
 
 After signing in, remove `BOOTSTRAP_ADMIN_PASSWORD` from the web service's environment. Keep authentication and encryption secrets stable. Google OAuth, transactional account email, verification and activated n8n workflows still need their real credentials before those operations can run. Live sending remains off until the real mailbox and recipients are explicitly approved.
 
+### Account verification and password-reset email
+
+Account email supports Resend and Brevo through their HTTPS APIs. Select `IDENTITY_EMAIL_PROVIDER=RESEND` with `RESEND_API_KEY`, or `IDENTITY_EMAIL_PROVIDER=BREVO` with `BREVO_API_KEY`. Set `IDENTITY_FROM_EMAIL` to the plain, verified sender email address. Configure the same provider and sender privately on Render and in `.local/hosted-worker.env`, redeploy the web service, and restart the local worker. Account registration requires these settings; the local worker must be online to deliver verification and reset links.
+
+Resend requires a verified domain. Brevo can temporarily rewrite a verified Gmail sender to its own sending domain; account and transactional sending activation still apply. Register at https://onboarding.brevo.com/, verify the account, add a sender named Concrete, and verify its email. Create an API key with transactional sending permissions, not an SMTP key. Never publish provider keys or enter them in chat. Provider acceptance must be checked with a real test, and inbox receipt remains a separate check.
+
+Keep pending account email drained or expired before changing providers. Brevo retries expire after ten minutes, inside its provider deduplication period; Resend retries expire after six hours. After an expired email, request a fresh verification/reset link. This setting controls account emails only; client campaign mail still uses each client's authorised mailbox.
+
 ### Local automation for the hosted app
 
 Use a separate ignored `.local/hosted-worker.env`; do not overwrite the existing `.env`. It contains the same hosted `DATABASE_URL`, `NEXTAUTH_SECRET`, `PLATFORM_ENCRYPTION_SEED`, `TENANT_DATABASE_PASSWORD`, and `N8N_WEBHOOK_SECRET`, plus `NEXTAUTH_URL` set to the actual public app origin. Add a stable random `N8N_ENCRYPTION_KEY`, `N8N_BASE_URL=http://127.0.0.1:5678`, `ORBIT_AUTOMATION_LOCATION=local`, `WORKER_POLL_MS=60000`, and `LIVE_EMAIL_ENABLED=false`. Copy configured Google/verification/transactional provider settings privately when those become available. Bootstrap administrator credentials are not needed by the worker.

@@ -1,12 +1,13 @@
 import { Prisma } from "@prisma/client";
-import { z } from "zod";
 import { db } from "./db";
 import { hash, secret, encrypt, decrypt } from "./security";
+import {
+  accountEmailConfig,
+  accountEmailRetryWindowMs,
+  deliverAccountEmail,
+} from "./account-email";
 export function identityEmailConfigured() {
-  return (
-    !!process.env.RESEND_API_KEY &&
-    !!z.email().safeParse(process.env.IDENTITY_FROM_EMAIL).success
-  );
+  return Boolean(accountEmailConfig());
 }
 export async function identityToken(
   tx: Prisma.TransactionClient,
@@ -40,12 +41,15 @@ export async function identityToken(
   });
 }
 export async function sendIdentityEmails() {
-  if (!identityEmailConfigured()) return;
-  // Provider idempotency lasts 24 hours. Expire work well inside that window.
+  const config = accountEmailConfig();
+  if (!config) return;
+  // Never retry outside the selected provider's deduplication window.
   await db.identityEmail.updateMany({
     where: {
       status: { in: ["PENDING", "SENDING"] },
-      createdAt: { lt: new Date(Date.now() - 6 * 3600000) },
+      createdAt: {
+        lt: new Date(Date.now() - accountEmailRetryWindowMs(config.provider)),
+      },
     },
     data: { status: "FAILED", error: "Expired. Request a new account link." },
   });
@@ -65,24 +69,12 @@ export async function sendIdentityEmails() {
   });
   if (!item) return;
   try {
-    const response = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
-        "Content-Type": "application/json",
-        "Idempotency-Key": `identity/${item.id}`,
-      },
-      body: JSON.stringify({
-        from: process.env.IDENTITY_FROM_EMAIL,
-        to: [item.to],
-        subject: item.subject,
-        text: decrypt(item.encryptedBody),
-      }),
-      signal: AbortSignal.timeout(15000),
-      redirect: "error",
+    await deliverAccountEmail(config, {
+      id: item.id,
+      to: item.to,
+      subject: item.subject,
+      body: decrypt(item.encryptedBody),
     });
-    if (!response.ok)
-      throw new Error(`Email provider returned HTTP ${response.status}`);
     await db.identityEmail.update({
       where: { id: item.id },
       data: { status: "SENT", encryptedBody: "", error: null },

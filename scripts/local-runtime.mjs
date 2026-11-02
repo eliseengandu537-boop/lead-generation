@@ -26,6 +26,8 @@ export function localAutomationEnvironment(stored, inherited = process.env) {
     "GOOGLE_CLIENT_ID",
     "GOOGLE_CLIENT_SECRET",
     "RESEND_API_KEY",
+    "BREVO_API_KEY",
+    "IDENTITY_EMAIL_PROVIDER",
     "IDENTITY_FROM_EMAIL",
     "EMAIL_VERIFICATION_URL",
     "EMAIL_VERIFICATION_API_KEY",

@@ -20,6 +20,8 @@ test("the hosted worker cannot inherit local database or encryption credentials"
     CONTROL_DATABASE_URL: "postgresql://unrelated@localhost/old",
     ENCRYPTION_KEY: "d".repeat(64),
     GOOGLE_CLIENT_SECRET: "unrelated-local-secret",
+    BREVO_API_KEY: "unrelated-account-email-key",
+    IDENTITY_EMAIL_PROVIDER: "BREVO",
     BOOTSTRAP_ADMIN_PASSWORD: "unrelated-password",
     LIVE_EMAIL_ENABLED: "true",
   });
@@ -32,6 +34,8 @@ test("the hosted worker cannot inherit local database or encryption credentials"
     createHash("sha256").update(stored.PLATFORM_ENCRYPTION_SEED).digest("hex"),
   );
   assert.equal(env.GOOGLE_CLIENT_SECRET, "");
+  assert.equal(env.BREVO_API_KEY, "");
+  assert.equal(env.IDENTITY_EMAIL_PROVIDER, "");
   assert.equal(env.BOOTSTRAP_ADMIN_PASSWORD, "");
   assert.equal(env.LIVE_EMAIL_ENABLED, "false");
   assert.equal(env.PATH, "system-path");
