@@ -1,0 +1,193 @@
+{
+  "name": "Orbit · QUALIFY",
+  "active": false,
+  "nodes": [
+    {
+      "id": "webhook",
+      "name": "Receive job",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [0, 0],
+      "webhookId": "orbit-qualify",
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "orbit-qualify",
+        "authentication": "headerAuth",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "CONFIGURE_ORBIT_HEADER_AUTH",
+          "name": "Orbit webhook authentication"
+        }
+      }
+    },
+    {
+      "id": "admit",
+      "name": "Admit durable job",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [260, 0],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Receive job').first().json.body.runUrl }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bearer ' + $('Receive job').first().json.body.token }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ jobId: $('Receive job').first().json.body.jobId, workspaceId: $('Receive job').first().json.body.workspaceId }) }}",
+        "options": {
+          "timeout": 10000,
+          "redirect": {
+            "redirect": {
+              "followRedirects": false
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "wait",
+      "name": "Wait for worker",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [520, 0],
+      "parameters": {
+        "amount": 10,
+        "unit": "seconds"
+      }
+    },
+    {
+      "id": "status",
+      "name": "Read actual job result",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [780, 0],
+      "parameters": {
+        "url": "={{ $('Receive job').first().json.body.statusUrl }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bearer ' + $('Receive job').first().json.body.token }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 10000,
+          "redirect": {
+            "redirect": {
+              "followRedirects": false
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "terminal",
+      "name": "Job finished",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [1040, 0],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "is-terminal",
+              "leftValue": "={{ $json.terminal }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    }
+  ],
+  "connections": {
+    "Receive job": {
+      "main": [
+        [
+          {
+            "node": "Admit durable job",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Admit durable job": {
+      "main": [
+        [
+          {
+            "node": "Wait for worker",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait for worker": {
+      "main": [
+        [
+          {
+            "node": "Read actual job result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read actual job result": {
+      "main": [
+        [
+          {
+            "node": "Job finished",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Job finished": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Wait for worker",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "executionTimeout": 1800,
+    "saveDataSuccessExecution": "none",
+    "saveDataErrorExecution": "none",
+    "saveManualExecutions": false
+  },
+  "tags": []
+}

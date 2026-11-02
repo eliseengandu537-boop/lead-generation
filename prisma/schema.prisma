@@ -1,0 +1,395 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                   String          @id @default(cuid())
+  email                String          @unique
+  name                 String
+  passwordHash         String
+  agencyAdmin          Boolean         @default(false)
+  requiresVerification Boolean         @default(false)
+  emailVerifiedAt      DateTime?
+  sessionVersion       Int             @default(0)
+  identityTokens       IdentityToken[]
+  memberships          Membership[]
+}
+
+model IdentityToken {
+  id         String    @id @default(cuid())
+  userId     String
+  purpose    String
+  tokenHash  String    @unique
+  expiresAt  DateTime
+  consumedAt DateTime?
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, purpose])
+}
+
+model IdentityEmail {
+  id            String   @id @default(cuid())
+  to            String
+  subject       String
+  encryptedBody String
+  status        String   @default("PENDING")
+  attempts      Int      @default(0)
+  runAt         DateTime @default(now())
+  createdAt     DateTime @default(now())
+  error         String?
+
+  @@index([status, runAt])
+}
+
+model Membership {
+  workspaceId String
+  userId      String
+  role        String    @default("SALES_MEMBER")
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([workspaceId, userId])
+}
+
+model RateBucket {
+  key       String   @id
+  count     Int      @default(1)
+  expiresAt DateTime
+}
+
+model Workspace {
+  id                   String                @id @default(cuid())
+  name                 String
+  status               String                @default("ACTIVE")
+  timezone             String                @default("Africa/Johannesburg")
+  createdAt            DateTime              @default(now())
+  memberships          Membership[]
+  platformOrganization PlatformOrganization?
+}
+
+model PlatformOrganization {
+  workspaceId           String                @id
+  websiteUrl            String                @default("")
+  profile               Json                  @default("{}")
+  profileEvidence       Json                  @default("[]")
+  targetCriteria        String                @default("")
+  encryptedSearchKey    String?
+  encryptedAiKey        String?
+  aiModel               String                @default("gpt-4.1-mini")
+  qualificationCriteria Json                  @default("{\"minimumScore\":70}")
+  profileApprovedAt     DateTime?
+  profileApprovedBy     String?
+  onboardingStatus      String                @default("NEW")
+  retentionDays         Int                   @default(365)
+  createdAt             DateTime              @default(now())
+  updatedAt             DateTime              @updatedAt
+  workspace             Workspace             @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  leads                 PlatformLead[]
+  campaigns             PlatformCampaign[]
+  templates             PlatformTemplate[]
+  notices               PlatformNotice[]
+  activities            PlatformActivity[]
+  usage                 PlatformUsage[]
+  subscription          PlatformSubscription?
+}
+
+model PlatformLead {
+  id                       String                      @id @default(cuid())
+  workspaceId              String
+  company                  String
+  name                     String                      @default("")
+  email                    String?
+  phone                    String                      @default("")
+  industry                 String                      @default("")
+  location                 String                      @default("")
+  website                  String                      @default("")
+  sourceUrl                String                      @default("")
+  sourceKind               String                      @default("MANUAL")
+  contactRole              String                      @default("")
+  status                   String                      @default("NEW")
+  notes                    String                      @default("")
+  ownerId                  String?
+  evidence                 Json                        @default("[]")
+  research                 Json?
+  qualificationScore       Int?
+  qualificationCategory    String?
+  qualificationExplanation String?
+  qualifiedAt              DateTime?
+  verificationStatus       String                      @default("UNKNOWN")
+  verifiedAt               DateTime?
+  eligibility              String                      @default("UNKNOWN")
+  consentSource            String?
+  consentAt                DateTime?
+  repliedAt                DateTime?
+  unsubscribedAt           DateTime?
+  draftSubject             String                      @default("")
+  draftBody                String                      @default("")
+  createdAt                DateTime                    @default(now())
+  updatedAt                DateTime                    @updatedAt
+  organization             PlatformOrganization        @relation(fields: [workspaceId], references: [workspaceId], onDelete: Cascade)
+  recipients               PlatformCampaignRecipient[]
+
+  @@unique([workspaceId, id])
+  @@unique([workspaceId, email])
+  @@index([workspaceId, status])
+}
+
+model PlatformCampaign {
+  id                        String                      @id @default(cuid())
+  workspaceId               String
+  mailboxId                 String?
+  templateId                String?
+  name                      String
+  subject                   String
+  body                      String
+  steps                     Json                        @default("[]")
+  target                    Json                        @default("{}")
+  status                    String                      @default("DRAFT")
+  approvedBy                String?
+  approvedAt                DateTime?
+  scheduledAt               DateTime?
+  dailyLimit                Int                         @default(25)
+  sendStartHour             Int                         @default(0)
+  sendEndHour               Int                         @default(24)
+  sendWeekdays              Int[]                       @default([1, 2, 3, 4, 5, 6, 7])
+  bounceThresholdPercent    Float                       @default(5)
+  complaintThresholdPercent Float                       @default(0.1)
+  safetyMinimumSent         Int                         @default(20)
+  safetyWindowHours         Int                         @default(24)
+  safetyPausedAt            DateTime?
+  safetyPauseReason         String?
+  createdAt                 DateTime                    @default(now())
+  updatedAt                 DateTime                    @updatedAt
+  organization              PlatformOrganization        @relation(fields: [workspaceId], references: [workspaceId], onDelete: Cascade)
+  template                  PlatformTemplate?           @relation(fields: [workspaceId, templateId], references: [workspaceId, id])
+  recipients                PlatformCampaignRecipient[]
+
+  @@unique([workspaceId, id])
+  @@index([workspaceId, status])
+}
+
+model PlatformCampaignRecipient {
+  id          String           @id @default(cuid())
+  workspaceId String
+  campaignId  String
+  leadId      String
+  status      String           @default("QUEUED")
+  subject     String           @default("")
+  body        String           @default("")
+  approvedAt  DateTime?
+  approvedBy  String?
+  step        Int              @default(0)
+  nextAt      DateTime         @default(now())
+  createdAt   DateTime         @default(now())
+  campaign    PlatformCampaign @relation(fields: [workspaceId, campaignId], references: [workspaceId, id], onDelete: Cascade)
+  lead        PlatformLead     @relation(fields: [workspaceId, leadId], references: [workspaceId, id], onDelete: Cascade)
+
+  @@unique([workspaceId, id])
+  @@unique([campaignId, leadId])
+  @@index([workspaceId, status, nextAt])
+}
+
+model PlatformTemplate {
+  id             String               @id @default(cuid())
+  workspaceId    String
+  name           String
+  subject        String
+  body           String
+  category       String               @default("OUTREACH")
+  approvalStatus String               @default("DRAFT")
+  approvedBy     String?
+  approvedAt     DateTime?
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+  organization   PlatformOrganization @relation(fields: [workspaceId], references: [workspaceId], onDelete: Cascade)
+  campaigns      PlatformCampaign[]
+
+  @@unique([workspaceId, id])
+}
+
+model PlatformNotice {
+  id           String               @id @default(cuid())
+  workspaceId  String
+  kind         String
+  title        String
+  message      String
+  severity     String               @default("INFO")
+  dedupeKey    String               @unique
+  readBy       String[]             @default([])
+  createdAt    DateTime             @default(now())
+  organization PlatformOrganization @relation(fields: [workspaceId], references: [workspaceId], onDelete: Cascade)
+
+  @@index([workspaceId, createdAt])
+}
+
+model PlatformActivity {
+  id           String               @id @default(cuid())
+  workspaceId  String
+  actorId      String?
+  leadId       String?
+  campaignId   String?
+  kind         String
+  detail       String
+  createdAt    DateTime             @default(now())
+  organization PlatformOrganization @relation(fields: [workspaceId], references: [workspaceId], onDelete: Cascade)
+
+  @@index([workspaceId, createdAt])
+}
+
+model PlatformPlan {
+  id               String                 @id
+  name             String
+  priceMinor       Int?
+  currency         String                 @default("ZAR")
+  monthlyProspects Int
+  dailyEmails      Int
+  dailyAi          Int
+  teamMembers      Int
+  features         String[]               @default([])
+  available        Boolean                @default(false)
+  updatedAt        DateTime               @updatedAt
+  subscriptions    PlatformSubscription[]
+}
+
+model PlatformSubscription {
+  workspaceId       String               @id
+  planId            String
+  status            String               @default("TRIAL")
+  providerReference String?
+  periodEnd         DateTime?
+  updatedAt         DateTime             @updatedAt
+  organization      PlatformOrganization @relation(fields: [workspaceId], references: [workspaceId], onDelete: Cascade)
+  plan              PlatformPlan         @relation(fields: [planId], references: [id])
+}
+
+model PlatformUsage {
+  id           String               @id @default(cuid())
+  workspaceId  String
+  kind         String
+  operationKey String
+  quantity     Int                  @default(1)
+  createdAt    DateTime             @default(now())
+  organization PlatformOrganization @relation(fields: [workspaceId], references: [workspaceId], onDelete: Cascade)
+
+  @@unique([workspaceId, operationKey])
+  @@index([workspaceId, kind, createdAt])
+}
+
+model PlatformMailbox {
+  id                     String    @id @default(cuid())
+  workspaceId            String
+  email                  String
+  provider               String    @default("GMAIL")
+  status                 String    @default("CONNECTED")
+  encryptedCredentials   String
+  dailyLimit             Int       @default(25)
+  minimumIntervalSeconds Int       @default(30)
+  lastSyncedAt           DateTime?
+  lastSentAt             DateTime?
+  syncError              String?
+  createdBy              String
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+
+  @@unique([workspaceId, email])
+  @@unique([workspaceId, id])
+}
+
+model PlatformMailMessage {
+  id                        String    @id @default(cuid())
+  workspaceId               String
+  mailboxId                 String
+  leadId                    String?
+  campaignId                String?
+  direction                 String
+  status                    String
+  step                      Int       @default(0)
+  toEmail                   String
+  fromEmail                 String
+  subject                   String
+  body                      String
+  dedupeKey                 String
+  contentHash               String
+  rfcMessageId              String    @unique
+  originalRfcMessageId      String?
+  providerMessageId         String?
+  providerThreadId          String?
+  replyToMessageId          String?
+  approvedBy                String?
+  approvedAt                DateTime?
+  classification            String?
+  classificationExplanation String?
+  suggestedReply            String?
+  error                     String?
+  createdAt                 DateTime  @default(now())
+  updatedAt                 DateTime  @updatedAt
+
+  @@unique([workspaceId, id])
+  @@unique([workspaceId, dedupeKey])
+  @@unique([mailboxId, providerMessageId])
+  @@index([workspaceId, campaignId, status, createdAt])
+  @@index([workspaceId, mailboxId, createdAt])
+}
+
+model PlatformMailEvent {
+  id          String   @id @default(cuid())
+  workspaceId String
+  mailboxId   String
+  messageId   String
+  externalId  String
+  kind        String
+  detail      String   @default("")
+  occurredAt  DateTime @default(now())
+  createdAt   DateTime @default(now())
+
+  @@unique([mailboxId, externalId])
+  @@index([workspaceId, kind, occurredAt])
+  @@index([workspaceId, messageId, kind])
+}
+
+model PlatformMailOAuthState {
+  tokenHash         String   @id
+  workspaceId       String
+  userId            String
+  browserHash       String
+  encryptedVerifier String
+  expiresAt         DateTime
+}
+
+model PlatformMailSuppression {
+  id          String   @id @default(cuid())
+  workspaceId String
+  email       String
+  reason      String
+  createdAt   DateTime @default(now())
+
+  @@unique([workspaceId, email])
+}
+
+model PlatformJob {
+  id               String    @id @default(cuid())
+  workspaceId      String
+  actorId          String?
+  kind             String
+  payload          Json
+  dedupeKey        String
+  status           String    @default("QUEUED")
+  attempts         Int       @default(0)
+  dispatchAttempts Int       @default(0)
+  runAt            DateTime  @default(now())
+  leaseUntil       DateTime?
+  error            String?
+  result           Json?
+  createdAt        DateTime  @default(now())
+  startedAt        DateTime?
+  completedAt      DateTime?
+
+  @@unique([workspaceId, dedupeKey])
+  @@index([status, runAt])
+  @@index([workspaceId, createdAt])
+}

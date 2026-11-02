@@ -1,0 +1,47 @@
+# Orbit
+
+Multi-tenant business research, lead qualification, approved email campaigns and reply management. This replaces the previous CRM application. All figures come from the new platform's actual records; there is no demonstration mode or sample-business seed.
+
+## Run
+
+Use Node 22.9+ and PostgreSQL. Preserve the existing `.env`; use `.env.example` only for a new environment.
+
+```powershell
+npm ci
+npm run db:generate
+npm run db:migrate
+npm run dev
+```
+
+The local application is at **http://localhost:3100**. Run `npm run worker` in a separate terminal. Production uses `npm run build` followed by `npm start`, alongside the same worker.
+
+`TENANT_DATABASE_URL` is mandatory. It must use a separate, restricted login inheriting `crm_tenant`, without table ownership, superuser, BYPASSRLS or `crm_control` membership. For a local database only, `node --env-file=.env --import tsx scripts/provision-local-tenant-db.ts` provisions that login and updates the ignored `.env`. This rotates its password; restart web and worker afterward.
+
+Existing user accounts are preserved. Each new business workspace has independent data and a configurable trial allowance. `npm run admin:create` creates a new platform administrator from temporary `BOOTSTRAP_ADMIN_EMAIL` and `BOOTSTRAP_ADMIN_PASSWORD`; it never changes an existing account.
+
+## Connect real services
+
+- **Website → Research connections:** each client stores its own encrypted Brave Search and OpenAI keys.
+- **Google Cloud OAuth:** configure `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and the exact callback `/api/platform/oauth/google/callback`. Each client authorizes its own Google Workspace mailbox matching its website domain. Outreach comes from that client mailbox.
+- **Email verification gateway:** configure `EMAIL_VERIFICATION_URL` and `EMAIL_VERIFICATION_API_KEY`. The HTTPS gateway accepts `POST { email }` with bearer authorization and returns `{ email, status: VALID|INVALID|RISKY|UNKNOWN }`.
+- **Account verification/reset:** configure `RESEND_API_KEY` and a verified `IDENTITY_FROM_EMAIL`. These transactional account emails are separate from client outreach. Registration fails clearly until configured.
+- **n8n:** configure `N8N_BASE_URL` and a 32+ character `N8N_WEBHOOK_SECRET`; import the twelve workflows under `n8n/workflows`, configure their Header Auth credential and activate them. The worker executes admitted durable jobs. No credentials or email content are sent to n8n.
+- **Live sending:** requires `LIVE_EMAIL_ENABLED=true`, an approved website profile, an explicitly enabled client mailbox, exact content approval, recent verification, sufficient qualification, documented consent, an active subscription allowance and no suppression or prior reply.
+
+Missing configuration is shown honestly. Queued work is not reported as completed. Payment collection is not connected; administrators can configure plans and record verified billing references.
+
+## Validate
+
+```powershell
+npm test
+npm run test:integration
+npm run typecheck
+npm run lint
+npm run build
+```
+
+The integration check requires the app running on port 3100 and the configured local database. It creates isolated temporary businesses, exercises PostgreSQL RLS, authentication, tenant APIs, email reservations, mocked Gmail replies, suppression and durable jobs, then removes its own fixtures. It never sends real email. Live-provider acceptance still needs a configured hosted environment and an explicitly approved recipient.
+
+See [architecture and replacement safety](docs/ARCHITECTURE.md), [deployment and service configuration](docs/DEPLOYMENT.md), and [verification evidence and remaining limits](docs/VERIFICATION.md).
+
+The interface includes persistent light/dark appearances, separate client and administrator navigation, website management, interactive performance charts, approval previews and automation monitoring. See the [interface system](docs/DESIGN.md). Desktop/mobile screenshots are under `artifacts/orbit`.

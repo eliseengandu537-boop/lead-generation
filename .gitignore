@@ -1,0 +1,10 @@
+node_modules/
+.next/
+.next-dev/
+.env
+.env.local
+*.tsbuildinfo
+coverage/
+.local/
+artifacts/*.mp4
+artifacts/*.zip

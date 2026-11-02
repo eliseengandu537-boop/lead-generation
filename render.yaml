@@ -1,0 +1,95 @@
+# Source: https://github.com/eliseengandu537-boop/lead-generation
+# Apply once as a Blueprint in the confirmed Render workspace.
+services:
+  - type: web
+    name: orbit-lead-generation
+    runtime: node
+    region: frankfurt
+    plan: free
+    buildCommand: npm ci --include=dev && npm run db:generate && npm run build
+    startCommand: node scripts/render-start.mjs web
+    healthCheckPath: /api/platform/health
+    autoDeployTrigger: commit
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: orbit-postgres
+          property: connectionString
+      - key: NEXTAUTH_URL
+        fromService:
+          name: orbit-lead-generation
+          type: web
+          envVarKey: RENDER_EXTERNAL_URL
+      - key: NEXTAUTH_SECRET
+        generateValue: true
+      - key: PLATFORM_ENCRYPTION_SEED
+        generateValue: true
+      - key: TENANT_DATABASE_PASSWORD
+        generateValue: true
+      - key: N8N_WEBHOOK_SECRET
+        generateValue: true
+      - key: BOOTSTRAP_ADMIN_EMAIL
+        sync: false
+      - key: BOOTSTRAP_ADMIN_PASSWORD
+        sync: false
+      - key: LIVE_EMAIL_ENABLED
+        value: "false"
+
+  - type: worker
+    name: orbit-worker
+    runtime: node
+    region: frankfurt
+    plan: 0.5c-512mb
+    buildCommand: npm ci --include=dev && npm run db:generate
+    startCommand: node scripts/render-start.mjs worker
+    autoDeployTrigger: commit
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: orbit-postgres
+          property: connectionString
+      - key: NEXTAUTH_URL
+        fromService:
+          name: orbit-lead-generation
+          type: web
+          envVarKey: NEXTAUTH_URL
+      - key: NEXTAUTH_SECRET
+        fromService:
+          name: orbit-lead-generation
+          type: web
+          envVarKey: NEXTAUTH_SECRET
+      - key: PLATFORM_ENCRYPTION_SEED
+        fromService:
+          name: orbit-lead-generation
+          type: web
+          envVarKey: PLATFORM_ENCRYPTION_SEED
+      - key: TENANT_DATABASE_PASSWORD
+        fromService:
+          name: orbit-lead-generation
+          type: web
+          envVarKey: TENANT_DATABASE_PASSWORD
+      - key: N8N_WEBHOOK_SECRET
+        fromService:
+          name: orbit-lead-generation
+          type: web
+          envVarKey: N8N_WEBHOOK_SECRET
+      - key: LIVE_EMAIL_ENABLED
+        value: "false"
+
+databases:
+  - name: orbit-postgres
+    region: frankfurt
+    plan: 0.1c-256mb
+    databaseName: orbit
+    user: orbit_owner
+    postgresMajorVersion: "17"
+    diskSizeGB: 1
+    ipAllowList: []

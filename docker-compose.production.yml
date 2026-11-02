@@ -1,0 +1,60 @@
+x-orbit-environment: &orbit-environment
+  NODE_ENV: production
+  DATABASE_URL: ${DATABASE_URL:?Set the production database migration URL}
+  CONTROL_DATABASE_URL: ${CONTROL_DATABASE_URL:-}
+  TENANT_DATABASE_URL: ${TENANT_DATABASE_URL:?Set the restricted tenant runtime database URL}
+  NEXTAUTH_URL: ${NEXTAUTH_URL:?Set the public HTTPS application URL}
+  NEXTAUTH_SECRET: ${NEXTAUTH_SECRET:?Set NEXTAUTH_SECRET}
+  ENCRYPTION_KEY: ${ENCRYPTION_KEY:?Set ENCRYPTION_KEY}
+  GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+  GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+  N8N_BASE_URL: ${N8N_BASE_URL:-}
+  N8N_WEBHOOK_SECRET: ${N8N_WEBHOOK_SECRET:-}
+  LIVE_EMAIL_ENABLED: ${LIVE_EMAIL_ENABLED:-false}
+  RESEND_API_KEY: ${RESEND_API_KEY:-}
+  IDENTITY_FROM_EMAIL: ${IDENTITY_FROM_EMAIL:-}
+  EMAIL_VERIFICATION_URL: ${EMAIL_VERIFICATION_URL:-}
+  EMAIL_VERIFICATION_API_KEY: ${EMAIL_VERIFICATION_API_KEY:-}
+  EMAIL_FEEDBACK_SECRET: ${EMAIL_FEEDBACK_SECRET:-}
+  TURNSTILE_SECRET: ${TURNSTILE_SECRET:-}
+services:
+  crm-db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: crm
+      POSTGRES_DB: crm
+      POSTGRES_PASSWORD: ${CRM_DB_PASSWORD:?Set CRM_DB_PASSWORD}
+    volumes:
+      - crm_database:/var/lib/postgresql/data
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U crm -d crm"]
+      interval: 5s
+      retries: 10
+  migrate:
+    image: orbit-platform:local
+    build: .
+    environment: *orbit-environment
+    command: [npm, run, db:migrate]
+    depends_on:
+      crm-db:
+        condition: service_healthy
+  web:
+    image: orbit-platform:local
+    restart: unless-stopped
+    environment: *orbit-environment
+    ports:
+      - "127.0.0.1:3100:3100"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+  worker:
+    image: orbit-platform:local
+    restart: unless-stopped
+    environment: *orbit-environment
+    command: [npm, run, worker]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+volumes:
+  crm_database:

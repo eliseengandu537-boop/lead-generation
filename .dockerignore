@@ -1,0 +1,12 @@
+node_modules
+.next
+.next-dev
+.git
+.env
+.env.*
+!.env.example
+.local
+artifacts
+coverage
+*.log
+*.tsbuildinfo

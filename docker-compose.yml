@@ -1,0 +1,17 @@
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: lead
+      POSTGRES_PASSWORD: localdevelopment
+      POSTGRES_DB: leads
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - lead_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U lead -d leads"]
+      interval: 5s
+      retries: 10
+volumes:
+  lead_data:

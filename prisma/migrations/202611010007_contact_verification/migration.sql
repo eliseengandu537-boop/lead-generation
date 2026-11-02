@@ -1,0 +1,1 @@
+ALTER TABLE "Contact" ADD COLUMN "verificationStatus" TEXT NOT NULL DEFAULT 'UNKNOWN', ADD COLUMN "verifiedAt" TIMESTAMP(3);
