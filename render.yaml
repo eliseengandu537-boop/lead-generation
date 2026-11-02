@@ -60,7 +60,7 @@ services:
         fromService:
           name: orbit-lead-generation
           type: web
-          envVarKey: NEXTAUTH_URL
+          envVarKey: RENDER_EXTERNAL_URL
       - key: NEXTAUTH_SECRET
         fromService:
           name: orbit-lead-generation
