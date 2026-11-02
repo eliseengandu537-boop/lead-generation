@@ -22,9 +22,8 @@ function run(args, env) {
     active.once("error", reject);
     active.once("exit", (code) => {
       active = undefined;
-      code === 0 || stopping
-        ? resolve()
-        : reject(new Error("Deployment process exited unsuccessfully"));
+      if (code === 0 || stopping) resolve();
+      else reject(new Error("Deployment process exited unsuccessfully"));
     });
   });
 }

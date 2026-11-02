@@ -2,6 +2,8 @@
 
 Multi-tenant business research, lead qualification, approved email campaigns and reply management. This replaces the previous CRM application. All figures come from the new platform's actual records; there is no demonstration mode or sample-business seed.
 
+[Deploy this repository on Render](https://dashboard.render.com/blueprint/new?repo=https://github.com/eliseengandu537-boop/lead-generation). The Blueprint creates a web service, worker and PostgreSQL database. Enter your initial administrator email and a unique 16+ character password. Review Render's worker/database charges before clicking Apply. Required provider credentials are configured separately; see [deployment instructions](docs/DEPLOYMENT.md).
+
 ## Run
 
 Use Node 22.9+ and PostgreSQL. Preserve the existing `.env`; use `.env.example` only for a new environment.
