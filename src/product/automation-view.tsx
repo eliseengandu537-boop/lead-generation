@@ -135,6 +135,7 @@ export function AutomationView({ data, organization, refresh }: ViewProps) {
   const total = counts.reduce((sum, group) => sum + number(group.count), 0);
   const configured = data.configurationState === "CONFIGURED";
   const invalid = data.configurationState === "INVALID";
+  const localWorker = data.workerLocation === "local";
   const visible = jobs.filter(
     (job) =>
       (!status || job.status === status) &&
@@ -217,7 +218,11 @@ export function AutomationView({ data, organization, refresh }: ViewProps) {
               <Workflow size={24} strokeWidth={1.5} />
             </span>
             <div>
-              <p className="eyebrow">N8N ORCHESTRATION</p>
+              <p className="eyebrow">
+                {localWorker
+                  ? "AUTOMATION ON YOUR COMPUTER"
+                  : "N8N ORCHESTRATION"}
+              </p>
               <h3>
                 {configured
                   ? "Configuration in place"
@@ -226,11 +231,13 @@ export function AutomationView({ data, organization, refresh }: ViewProps) {
                     : "Awaiting connection"}
               </h3>
               <p className="subtle">
-                {configured
-                  ? "The server has an orchestration endpoint and authentication secret configured."
-                  : invalid
-                    ? "The configured automation endpoint is invalid. Ask your platform administrator to review it."
-                    : "Your platform administrator needs to configure the n8n endpoint and authentication secret."}
+                {configured && localWorker
+                  ? "Operations wait in the queue until your computer and its automation worker are running."
+                  : configured
+                    ? "The server has an orchestration endpoint and authentication secret configured."
+                    : invalid
+                      ? "The configured automation endpoint is invalid. Ask your platform administrator to review it."
+                      : "Your platform administrator needs to configure the n8n endpoint and authentication secret."}
               </p>
             </div>
           </div>

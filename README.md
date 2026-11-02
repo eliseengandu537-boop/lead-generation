@@ -2,7 +2,7 @@
 
 Multi-tenant business research, lead qualification, approved email campaigns and reply management. This replaces the previous CRM application. All figures come from the new platform's actual records; there is no demonstration mode or sample-business seed.
 
-[Deploy this repository on Render](https://dashboard.render.com/blueprint/new?repo=https://github.com/eliseengandu537-boop/lead-generation). The Blueprint creates a web service, worker and PostgreSQL database. Enter your initial administrator email and a unique 16+ character password. Review Render's worker/database charges before clicking Apply. Required provider credentials are configured separately; see [deployment instructions](docs/DEPLOYMENT.md).
+[Deploy this repository on Render](https://dashboard.render.com/blueprint/new?repo=https://github.com/eliseengandu537-boop/lead-generation). The default Blueprint requests only a free web service. Supply a private connection to a free Neon database, your administrator email and a unique 16+ character password. n8n and the worker run on your computer while it stays online. Free usage limits and provider costs still apply; see [deployment instructions](docs/DEPLOYMENT.md).
 
 ## Run
 
@@ -16,6 +16,8 @@ npm run dev
 ```
 
 The local application is at **http://localhost:3100**. Run `npm run worker` in a separate terminal. Production uses `npm run build` followed by `npm start`, alongside the same worker.
+
+For the hosted app with local automation, use `npm run automation:check` and `npm run automation:start` after configuring the separate ignored `.local/hosted-worker.env`. This starts loopback-only n8n and the worker against the hosted database. `Ctrl+C` stops the worker; `npm run automation:stop` stops n8n. Your original local `.env` is preserved. The hosted app remains accessible when the computer is off; automation waits in PostgreSQL until the worker resumes.
 
 `TENANT_DATABASE_URL` is mandatory. It must use a separate, restricted login inheriting `crm_tenant`, without table ownership, superuser, BYPASSRLS or `crm_control` membership. For a local database only, `node --env-file=.env --import tsx scripts/provision-local-tenant-db.ts` provisions that login and updates the ignored `.env`. This rotates its password; restart web and worker afterward.
 

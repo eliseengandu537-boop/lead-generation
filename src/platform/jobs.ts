@@ -35,12 +35,18 @@ export async function enqueueJob(
   });
 }
 export function orchestrationConfig() {
+  const location =
+    process.env.ORBIT_AUTOMATION_LOCATION === "local" ? "local" : "hosted";
   if (
-    !process.env.N8N_BASE_URL ||
     !process.env.N8N_WEBHOOK_SECRET ||
     process.env.N8N_WEBHOOK_SECRET.length < 32
   )
     return null;
+  if (!process.env.N8N_BASE_URL) {
+    if (location === "local")
+      return { url: null, secret: process.env.N8N_WEBHOOK_SECRET, location };
+    return null;
+  }
   const url = new URL(process.env.N8N_BASE_URL);
   if (
     url.username ||
@@ -49,15 +55,20 @@ export function orchestrationConfig() {
     url.hash ||
     (url.protocol !== "https:" &&
       !(
-        process.env.NODE_ENV !== "production" &&
+        (process.env.NODE_ENV !== "production" || location === "local") &&
         url.protocol === "http:" &&
-        ["localhost", "127.0.0.1", "n8n"].includes(url.hostname)
+        [
+          "localhost",
+          "127.0.0.1",
+          ...(location === "local" ? [] : ["n8n"]),
+        ].includes(url.hostname)
       ))
   )
     throw new Error("Configure a trusted HTTPS n8n origin");
   return {
     url: url.href.replace(/\/$/, ""),
     secret: process.env.N8N_WEBHOOK_SECRET,
+    location,
   };
 }
 export function jobToken(
@@ -91,7 +102,7 @@ export async function dispatchOneJob(
   request: typeof fetch = fetch,
 ) {
   const config = orchestrationConfig();
-  if (!config) return false;
+  if (!config?.url) return false;
   const job = await db.$transaction(async (tx) => {
     const rows = await tx.$queryRaw<
       { id: string }[]

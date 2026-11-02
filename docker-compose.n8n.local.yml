@@ -1,0 +1,26 @@
+# Local-only n8n for the $0 hosted-app setup. No public tunnel is required.
+services:
+  n8n:
+    image: docker.n8n.io/n8nio/n8n:3.0.0
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:5678:5678"
+    environment:
+      N8N_HOST: localhost
+      N8N_PORT: "5678"
+      N8N_PROTOCOL: http
+      N8N_SECURE_COOKIE: "false"
+      N8N_EDITOR_BASE_URL: http://localhost:5678
+      WEBHOOK_URL: http://localhost:5678
+      N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY:?Set the stable local encryption key}
+      N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS: "true"
+      N8N_DIAGNOSTICS_ENABLED: "false"
+      N8N_BLOCK_ENV_ACCESS_IN_NODE: "true"
+      EXECUTIONS_DATA_PRUNE: "true"
+      EXECUTIONS_DATA_SAVE_ON_SUCCESS: none
+      EXECUTIONS_DATA_SAVE_ON_ERROR: none
+      EXECUTIONS_DATA_SAVE_MANUAL_EXECUTIONS: "false"
+    volumes:
+      - local_n8n_data:/home/node/.n8n
+volumes:
+  local_n8n_data:

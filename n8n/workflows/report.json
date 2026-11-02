@@ -7,7 +7,10 @@
       "name": "Receive job",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2,
-      "position": [0, 0],
+      "position": [
+        0,
+        0
+      ],
       "webhookId": "orbit-report",
       "parameters": {
         "httpMethod": "POST",
@@ -28,7 +31,10 @@
       "name": "Admit durable job",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [260, 0],
+      "position": [
+        260,
+        0
+      ],
       "parameters": {
         "method": "POST",
         "url": "={{ $('Receive job').first().json.body.runUrl }}",
@@ -45,7 +51,7 @@
         "specifyBody": "json",
         "jsonBody": "={{ JSON.stringify({ jobId: $('Receive job').first().json.body.jobId, workspaceId: $('Receive job').first().json.body.workspaceId }) }}",
         "options": {
-          "timeout": 10000,
+          "timeout": 120000,
           "redirect": {
             "redirect": {
               "followRedirects": false
@@ -59,7 +65,10 @@
       "name": "Wait for worker",
       "type": "n8n-nodes-base.wait",
       "typeVersion": 1.1,
-      "position": [520, 0],
+      "position": [
+        520,
+        0
+      ],
       "parameters": {
         "amount": 10,
         "unit": "seconds"
@@ -70,7 +79,10 @@
       "name": "Read actual job result",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [780, 0],
+      "position": [
+        780,
+        0
+      ],
       "parameters": {
         "url": "={{ $('Receive job').first().json.body.statusUrl }}",
         "sendHeaders": true,
@@ -83,7 +95,7 @@
           ]
         },
         "options": {
-          "timeout": 10000,
+          "timeout": 120000,
           "redirect": {
             "redirect": {
               "followRedirects": false
@@ -97,7 +109,10 @@
       "name": "Job finished",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
-      "position": [1040, 0],
+      "position": [
+        1040,
+        0
+      ],
       "parameters": {
         "conditions": {
           "options": {

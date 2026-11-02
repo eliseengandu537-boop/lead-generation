@@ -66,6 +66,8 @@ export async function GET(
       orchestrationConfigured: configurationState === "CONFIGURED",
       configurationState,
       activationState: "UNVERIFIED",
+      workerLocation:
+        process.env.ORBIT_AUTOMATION_LOCATION === "local" ? "local" : "hosted",
       counts: totals.map((group) => ({
         status: group.status,
         count: group._count._all,

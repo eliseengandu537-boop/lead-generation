@@ -50,7 +50,8 @@ async function main() {
           specifyBody: "json",
           jsonBody: `={{ JSON.stringify({ jobId: ${source}.jobId, workspaceId: ${source}.workspaceId }) }}`,
           options: {
-            timeout: 10000,
+            // Free hosted web services can take about a minute to wake up.
+            timeout: 120000,
             redirect: { redirect: { followRedirects: false } },
           },
         },
@@ -74,7 +75,7 @@ async function main() {
           sendHeaders: true,
           headerParameters: headers,
           options: {
-            timeout: 10000,
+            timeout: 120000,
             redirect: { redirect: { followRedirects: false } },
           },
         },
