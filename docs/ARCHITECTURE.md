@@ -37,6 +37,12 @@ Non-platform-admin users render `src/product/client-portal.tsx`; platform admini
 
 Demo workspaces stay read-only and clearly label fictional activity. The results portal does not activate campaign sending, change existing campaigns or connect a mailbox. Website profiles describe outreach targeting; visitor analytics and website enquiry collection remain unconnected and are identified as such in the portal.
 
+### Administrator-provisioned client logins
+
+`POST /api/platform/admin/client-logins` requires a platform administrator, matching request origin and a per-administrator rate limit. It creates a new non-admin user and CLIENT_VIEWER membership, optionally creating a business and trial subscription in the same transaction. Existing businesses must be active, non-demo organizations with an available team seat. Email and workspace locks prevent duplicate provisioning and concurrent seat overruns. An existing email returns a conflict without changing its password or memberships.
+
+Passwords use 24 random bytes plus a character suffix and bcrypt cost 12. Only the creation response includes the generated password, with `Cache-Control: no-store`; directory reads, activity records and database fields do not contain it in readable form. The administrator can reveal, copy or download it in the creation drawer. Administrator-provisioned accounts can sign in immediately without the public registration step. Their email is not falsely marked as verified, and the creation operation does not queue any email. Standard email-based password recovery remains available.
+
 ## Email state and recovery
 
 Campaign approval snapshots each recipient's reviewed personalized subject/body. Changes revoke approvals. Runtime checks repeat immediately before a message is reserved. A committed `SENDING` record exists before Gmail is contacted. Only a confirmed provider response produces `ACCEPTED`; this is not delivery confirmation. Ambiguous outcomes become `REVIEW_REQUIRED` and cannot automatically resend. Reconciliation searches Gmail's Sent folder by the stable RFC Message-ID. An absent result never proves that sending failed.

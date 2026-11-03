@@ -1,3 +1,110 @@
+/* Administrator-managed client access. */
+.client-access-panel {
+  padding: 27px;
+}
+.client-access-panel .dialog-heading {
+  align-items: flex-start;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+.client-access-panel h2 {
+  font-size: 23px;
+  line-height: 1.4;
+  letter-spacing: -0.55px;
+  color: var(--ink-strong);
+}
+.client-access-panel .dialog-detail {
+  font-size: 12px;
+  line-height: 1.85;
+  color: var(--muted);
+  margin-bottom: 24px;
+}
+.client-access-fields {
+  display: grid;
+  gap: 20px;
+}
+.client-access-fields > label {
+  margin: 0;
+  display: grid;
+  gap: 9px;
+  color: var(--ink);
+  font-size: 11px;
+}
+.client-access-fields input,
+.client-access-fields select {
+  width: 100%;
+  min-width: 0;
+  background: var(--surface);
+  color: var(--ink);
+  border: 1px solid var(--line-strong);
+  border-radius: 7px;
+  padding: 12px;
+  font-size: 12px;
+}
+.client-password-field {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+.client-password-field input {
+  flex: 1;
+  font-family: ui-monospace, monospace;
+}
+.client-password-field button {
+  flex-shrink: 0;
+}
+.client-access-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 25px;
+}
+.client-access-actions button {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+}
+.client-access-panel .fine-print {
+  margin: 24px 0;
+  font-size: 11px;
+  line-height: 1.85;
+  color: var(--muted);
+}
+.client-access-scope {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.8;
+  padding: 15px;
+  border: 1px solid var(--line);
+  background: var(--surface-subtle);
+  border-radius: 7px;
+  margin: 0;
+}
+.client-access-scope > svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+  color: var(--accent);
+}
+.client-access-panel .alert {
+  margin-top: 21px;
+}
+.client-access-done {
+  margin-top: 5px;
+}
+@media (max-width: 650px) {
+  .client-access-panel {
+    padding: 22px;
+  }
+  .client-access-actions {
+    display: grid;
+  }
+  .client-access-panel h2 {
+    font-size: 21px;
+  }
+}
 /* Client results portal: deliberately separate from the operations console. */
 .client-portal {
   min-height: 100dvh;

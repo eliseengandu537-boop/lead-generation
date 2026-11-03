@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { PrismaClient, type PlatformLead } from "@prisma/client";
-import { hash as passwordHash } from "bcryptjs";
+import { hash as passwordHash, compare } from "bcryptjs";
 import { controlDb, db, assertTenantDatabase } from "../src/lib/db";
 import { withTenantDatabase } from "../src/lib/tenancy";
 import { encrypt, hash, sign } from "../src/lib/security";
@@ -629,11 +629,266 @@ async function main() {
   pass(
     "client results work while operational reads, writes, cross-client data and legacy administrator roles remain blocked",
   );
+  const clientProvisionUrl = `${base}/api/platform/admin/client-logins`;
+  const manualEmail = `manual-client-${suffix}@example.invalid`;
+  const manualInput = {
+    name: "Manual client",
+    email: manualEmail,
+    workspaceId: a,
+  };
+  assert.equal(
+    (
+      await fetch(clientProvisionUrl, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(manualInput),
+      })
+    ).status,
+    403,
+    "Clients cannot create logins",
+  );
   // Only this isolated fixture is elevated for the separate operator checks.
   await controlDb.user.update({
     where: { id: user.id },
     data: { agencyAdmin: true },
   });
+  assert.equal(
+    (
+      await fetch(clientProvisionUrl, {
+        method: "POST",
+        headers: { ...headers, Origin: "https://evil.invalid" },
+        body: JSON.stringify(manualInput),
+      })
+    ).status,
+    403,
+    "Client provisioning requires same origin",
+  );
+  const provisionResponse = await fetch(clientProvisionUrl, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(manualInput),
+  });
+  assert.equal(
+    provisionResponse.status,
+    200,
+    "Administrator can provision client access",
+  );
+  assert.match(
+    provisionResponse.headers.get("cache-control") || "",
+    /no-store/,
+  );
+  const provision = await provisionResponse.json();
+  users.push(provision.client.id);
+  assert.equal(provision.workspace.id, a);
+  assert.equal(provision.login.email, manualEmail);
+  assert.equal(provision.login.url, `${base}/login`);
+  assert.ok(
+    typeof provision.login.password === "string" &&
+      provision.login.password.length >= 24,
+  );
+  const newClient = await controlDb.user.findUniqueOrThrow({
+    where: { id: provision.client.id },
+  });
+  assert.equal(newClient.agencyAdmin, false);
+  assert.equal(newClient.requiresVerification, false);
+  assert.equal(
+    newClient.emailVerifiedAt,
+    null,
+    "Admin provisioning does not invent mailbox verification",
+  );
+  assert.equal(
+    await compare(provision.login.password, newClient.passwordHash),
+    true,
+  );
+  assert.notEqual(newClient.passwordHash, provision.login.password);
+  assert.equal(
+    await controlDb.membership.count({
+      where: { userId: newClient.id, workspaceId: a, role: "CLIENT_VIEWER" },
+    }),
+    1,
+  );
+  assert.equal(
+    await controlDb.identityEmail.count({ where: { to: manualEmail } }),
+    0,
+    "Provisioning does not send email implicitly",
+  );
+  const duplicate = await fetch(clientProvisionUrl, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(manualInput),
+  });
+  assert.equal(
+    duplicate.status,
+    409,
+    "Existing account passwords must not be overwritten",
+  );
+  assert.equal(
+    (await controlDb.user.findUniqueOrThrow({ where: { id: newClient.id } }))
+      .passwordHash,
+    newClient.passwordHash,
+  );
+  assert.equal(
+    await controlDb.membership.count({ where: { userId: newClient.id } }),
+    1,
+  );
+  const failedEmail = `failed-manual-${suffix}@example.invalid`;
+  assert.equal(
+    (
+      await fetch(clientProvisionUrl, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          name: "Must roll back",
+          email: failedEmail,
+          workspaceId: "missing-business",
+        }),
+      })
+    ).status,
+    404,
+  );
+  assert.equal(
+    await controlDb.user.count({ where: { email: failedEmail } }),
+    0,
+    "Failed provisioning leaves no orphan account",
+  );
+  const newWorkspaceResponse = await fetch(clientProvisionUrl, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      name: "New business client",
+      email: `new-business-client-${suffix}@example.invalid`,
+      businessName: `New provisioned business ${suffix}`,
+      websiteUrl: "https://acme.com",
+    }),
+  });
+  assert.equal(newWorkspaceResponse.status, 200);
+  const newBusiness = await newWorkspaceResponse.json();
+  users.push(newBusiness.client.id);
+  workspaces.push(newBusiness.workspace.id);
+  assert.notEqual(newBusiness.workspace.id, a);
+  assert.equal(
+    await controlDb.membership.count({
+      where: {
+        userId: newBusiness.client.id,
+        workspaceId: newBusiness.workspace.id,
+        role: "CLIENT_VIEWER",
+      },
+    }),
+    1,
+  );
+  assert.equal(
+    await controlDb.platformSubscription.count({
+      where: { workspaceId: newBusiness.workspace.id, planId: "TRIAL14" },
+    }),
+    1,
+  );
+  assert.equal(
+    await controlDb.platformActivity.count({
+      where: {
+        workspaceId: newBusiness.workspace.id,
+        kind: "ORGANIZATION_CREATED",
+        actorId: user.id,
+      },
+    }),
+    1,
+  );
+  const clientCsrfResponse = await fetch(`${base}/api/auth/csrf`);
+  const clientCsrf = await clientCsrfResponse.json();
+  const clientLoginResponse = await fetch(
+    `${base}/api/auth/callback/credentials`,
+    {
+      method: "POST",
+      redirect: "manual",
+      headers: {
+        Origin: base,
+        "Content-Type": "application/x-www-form-urlencoded",
+        Cookie: clientCsrfResponse.headers
+          .getSetCookie()
+          .map((value) => value.split(";", 1)[0])
+          .join("; "),
+      },
+      body: new URLSearchParams({
+        csrfToken: clientCsrf.csrfToken,
+        email: manualEmail,
+        password: provision.login.password,
+        json: "true",
+      }),
+    },
+  );
+  const clientCookie = clientLoginResponse.headers
+    .getSetCookie()
+    .map((value) => value.split(";", 1)[0])
+    .join("; ");
+  assert.ok(
+    clientCookie.includes("session-token"),
+    "Generated credentials can sign in immediately",
+  );
+  const clientHeaders = {
+    Cookie: clientCookie,
+    Origin: base,
+    "Content-Type": "application/json",
+  };
+  const clientSession = await (
+    await fetch(`${base}/api/platform/session`, { headers: clientHeaders })
+  ).json();
+  assert.equal(clientSession.user.superAdmin, false);
+  assert.equal(clientSession.organizations.length, 1);
+  assert.equal(clientSession.organizations[0].workspaceId, a);
+  assert.equal(
+    (
+      await fetch(`${base}/api/platform/${a}/portal`, {
+        headers: clientHeaders,
+      })
+    ).status,
+    200,
+  );
+  assert.equal(
+    (
+      await fetch(`${base}/api/platform/${b}/portal`, {
+        headers: clientHeaders,
+      })
+    ).status,
+    403,
+  );
+  assert.equal(
+    (await fetch(`${base}/api/platform/admin`, { headers: clientHeaders }))
+      .status,
+    403,
+  );
+  assert.equal(
+    (
+      await fetch(clientProvisionUrl, {
+        method: "POST",
+        headers: clientHeaders,
+        body: JSON.stringify(manualInput),
+      })
+    ).status,
+    403,
+  );
+  const directory = await (
+    await fetch(`${base}/api/platform/admin`, { headers })
+  ).json();
+  assert.ok(
+    directory.organizations
+      .find((item: { workspaceId: string }) => item.workspaceId === a)
+      .clientLogins.some(
+        (item: { email: string }) => item.email === manualEmail,
+      ),
+  );
+  assert.equal(
+    JSON.stringify(directory).includes(provision.login.password),
+    false,
+    "Generated passwords are never returned by directory reads",
+  );
+  assert.equal(
+    await controlDb.platformActivity.count({
+      where: { workspaceId: a, detail: { contains: provision.login.password } },
+    }),
+    0,
+  );
+  pass(
+    "administrators create immediate client-only logins with hashed generated passwords; duplicate emails, cross-client access and secret readback are blocked",
+  );
   const importResult = await fetch(`${base}/api/platform/${a}/leads`, {
     method: "POST",
     headers,

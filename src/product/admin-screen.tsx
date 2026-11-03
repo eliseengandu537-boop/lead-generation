@@ -13,6 +13,7 @@ import {
   ExternalLink,
   Globe2,
   Inbox,
+  KeyRound,
   Layers3,
   LayoutDashboard,
   Menu,
@@ -47,6 +48,7 @@ import {
 } from "./primitives";
 import { ThemeToggle } from "./theme";
 import { MetricNumber, TrendChart } from "./charts";
+import { ClientLoginDialog } from "./client-login-dialog";
 
 const navigation = [
   {
@@ -129,6 +131,9 @@ export default function AdminScreen() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [dialog, setDialog] = useState<Dialog | null>(null);
+  const [clientLogin, setClientLogin] = useState<{
+    workspaceId?: string;
+  } | null>(null);
   const [revision, setRevision] = useState(0);
   const [tab, setTab] = useState("command");
   const [mobile, setMobile] = useState(false);
@@ -1054,8 +1059,19 @@ export default function AdminScreen() {
                   ])}
                   <div className="surface">
                     <div className="card-heading">
-                      <h3>Client accounts</h3>
-                      <span>{organizations.length} businesses</span>
+                      <div>
+                        <h3>Client accounts</h3>
+                        <span className="subtle">
+                          {organizations.length} businesses
+                        </span>
+                      </div>
+                      <button
+                        className="primary"
+                        onClick={() => setClientLogin({})}
+                      >
+                        <KeyRound size={16} />
+                        Create client login
+                      </button>
                     </div>
                     {organizations.length ? (
                       <div className="table-scroll">
@@ -1067,6 +1083,7 @@ export default function AdminScreen() {
                               <th>Leads</th>
                               <th>Campaigns</th>
                               <th>Team</th>
+                              <th>Client logins</th>
                               <th>Subscription</th>
                               <th>Manage</th>
                             </tr>
@@ -1105,6 +1122,19 @@ export default function AdminScreen() {
                                   {compact(object(organization.counts).members)}
                                 </td>
                                 <td>
+                                  {rows(organization.clientLogins).length ? (
+                                    rows(organization.clientLogins).map(
+                                      (client) => (
+                                        <small key={text(client.id)}>
+                                          {text(client.email)}
+                                        </small>
+                                      ),
+                                    )
+                                  ) : (
+                                    <small>No client login yet</small>
+                                  )}
+                                </td>
+                                <td>
                                   {text(
                                     object(
                                       object(organization.subscription).plan,
@@ -1123,6 +1153,23 @@ export default function AdminScreen() {
                                 </td>
                                 <td>
                                   <div className="row-actions">
+                                    {organization.status === "ACTIVE" &&
+                                      organization.onboardingStatus !==
+                                        "DEMO" && (
+                                        <button
+                                          aria-label={`Create login for ${text(organization.name)}`}
+                                          onClick={() =>
+                                            setClientLogin({
+                                              workspaceId: text(
+                                                organization.workspaceId,
+                                              ),
+                                            })
+                                          }
+                                        >
+                                          <KeyRound size={14} />
+                                          Create login
+                                        </button>
+                                      )}
                                     <button
                                       onClick={() => changeAccess(organization)}
                                     >
@@ -1895,6 +1942,22 @@ export default function AdminScreen() {
         </div>
       )}
       {dialog && <ActionDialog dialog={dialog} close={() => setDialog(null)} />}
+      {clientLogin && (
+        <ClientLoginDialog
+          businesses={organizations.filter(
+            (item) =>
+              item.status === "ACTIVE" && item.onboardingStatus !== "DEMO",
+          )}
+          workspaceId={clientLogin.workspaceId}
+          close={() => setClientLogin(null)}
+          created={() => {
+            setNotice(
+              "Client login created. Copy or download the generated details before closing.",
+            );
+            setRevision((value) => value + 1);
+          }}
+        />
+      )}
     </div>
   );
 }

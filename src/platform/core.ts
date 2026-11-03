@@ -42,6 +42,7 @@ export async function createOrganizationInTransaction(
   transaction: Prisma.TransactionClient,
   user: Actor,
   input: OrganizationInput,
+  activityActorId = user.id,
 ) {
   const data = organizationInput.parse(input);
   try {
@@ -72,7 +73,7 @@ export async function createOrganizationInTransaction(
   await transaction.platformActivity.create({
     data: {
       workspaceId: workspace.id,
-      actorId: user.id,
+      actorId: activityActorId,
       kind: "ORGANIZATION_CREATED",
       detail: "Independent business account created",
     },
@@ -1149,12 +1150,18 @@ export async function adminRead() {
     select: {
       workspaceId: true,
       websiteUrl: true,
+      onboardingStatus: true,
       createdAt: true,
       workspace: {
         select: {
           name: true,
           status: true,
           _count: { select: { memberships: true } },
+          memberships: {
+            where: { user: { agencyAdmin: false } },
+            select: { user: { select: { id: true, name: true, email: true } } },
+            take: 20,
+          },
         },
       },
       _count: { select: { leads: true, campaigns: true } },
@@ -1168,6 +1175,9 @@ export async function adminRead() {
         ...organization,
         name: workspace.name,
         status: workspace.status,
+        clientLogins: workspace.memberships.map(
+          (membership) => membership.user,
+        ),
         counts: {
           leads: _count.leads,
           campaigns: _count.campaigns,

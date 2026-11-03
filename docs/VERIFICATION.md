@@ -1,5 +1,11 @@
 # Verification
 
+## Administrator-created client logins — November 3, 2026
+
+All 24 unit tests, type checking, lint and the production build passed. Twelve local integration groups passed, including administrator-only login provisioning, existing and new business membership, immediate sign-in with a generated password, bcrypt verification, duplicate-email conflict handling, atomic rollback for an invalid business, cache prevention, secret exclusion from directory and audit reads, and blocked client access to other businesses and administration. No email is queued by provisioning, and all campaign transports in the integration checks were mocked.
+
+Local browser checks passed creation for both an existing business and a new business, masked password display, reveal/hide, copying and downloading login details, immediate client sign-in, client-only portal access and duplicate-email handling. Desktop and mobile layouts passed without browser errors. Screenshots keep passwords masked and are stored under `artifacts/concrete/client-access/local`. The temporary accounts, business fixtures and downloaded test credentials were removed.
+
 ## Dedicated client portal — November 3, 2026
 
 - All 24 unit tests, type checking, lint and the production build passed.

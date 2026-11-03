@@ -27,6 +27,8 @@ Existing user accounts are preserved. Each new business workspace has independen
 
 Clients receive a separate results portal for their leads, campaigns, conversations, website profile and reports. Only platform administrators manage integrations, automation, sending, teams and workspace configuration. Legacy client administrator memberships also use the results portal; they cannot access the operational APIs. New client access uses the CLIENT_VIEWER role.
 
+To create a client login, open **Admin → Clients → Create client login**. Enter the client's name and email, then select their existing business or create a new business. Concrete generates a strong password and displays it in the creation result. Copy or download the details and share them privately with the client; they can sign in immediately. Passwords are stored as bcrypt hashes and cannot be retrieved later. Existing email accounts are not overwritten. Clients can use **Forgot password** to choose a new password through their email account. This action creates portal access only and does not send email or activate campaigns.
+
 ## Connect real services
 
 - **Website → Research connections:** each client stores its own encrypted Brave Search and OpenAI keys.
