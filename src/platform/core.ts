@@ -12,6 +12,11 @@ export async function organizationAccess(workspaceId: string, manage = false) {
     where: { workspaceId },
   });
   if (!organization) throw new HttpError(404, "Organization not found");
+  if (manage && organization.onboardingStatus === "DEMO")
+    throw new HttpError(
+      403,
+      "This demo workspace is read-only. No emails can be sent.",
+    );
   return { ...access, organization };
 }
 
@@ -101,6 +106,7 @@ export async function platformSession() {
       timezone: workspace.timezone,
       status: workspace.status,
       role: user.agencyAdmin ? "AGENCY_ADMIN" : workspace.memberships[0]?.role,
+      isDemo: organization.onboardingStatus === "DEMO",
     })),
   };
 }
@@ -375,6 +381,11 @@ export async function writeResource(
     resource !== "notifications",
   );
   const { user, organization } = access;
+  if (organization.onboardingStatus === "DEMO")
+    throw new HttpError(
+      403,
+      "This demo workspace is read-only. No emails can be sent.",
+    );
   if (
     resource === "leads" &&
     ["research", "qualify", "verify", "draft"].includes(envelope.action)

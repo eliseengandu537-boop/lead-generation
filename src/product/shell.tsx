@@ -134,8 +134,12 @@ export default function ConcreteApp() {
     (entry) => entry.workspaceId === organizationId,
   );
   const canManage =
-    !!session?.user.superAdmin ||
-    ["CLIENT_ADMIN", "OWNER", "ADMIN"].includes(organization?.role || "");
+    !organization?.isDemo &&
+    (!!session?.user.superAdmin ||
+      ["CLIENT_ADMIN", "OWNER", "ADMIN"].includes(organization?.role || ""));
+  const demoLogin = session?.organizations.some(
+    (entry) => entry.role === "DEMO_VIEWER",
+  );
   const active = navigation.find((entry) => entry.id === tab)!;
   function navigate(next: string) {
     setTab(next);
@@ -144,6 +148,12 @@ export default function ConcreteApp() {
     setDialog(null);
   }
   async function act(resource: string, body: RecordValue) {
+    if (organization?.isDemo) {
+      setNotice(
+        "This is a read-only demo. Sample records stay unchanged and no emails are sent.",
+      );
+      return {};
+    }
     const result = await api(
       `/api/platform/${organizationId}/${resource}`,
       "POST",
@@ -242,10 +252,12 @@ export default function ConcreteApp() {
           ))}
         </nav>
         <div className="sidebar-bottom">
-          <button className="new-workspace" onClick={createOrganization}>
-            <Plus size={16} />
-            New workspace
-          </button>
+          {!demoLogin && (
+            <button className="new-workspace" onClick={createOrganization}>
+              <Plus size={16} />
+              New workspace
+            </button>
+          )}
           {session?.user.superAdmin && (
             <Link href="/admin" className="nav-link">
               <ShieldCheck size={17} />
@@ -312,6 +324,18 @@ export default function ConcreteApp() {
           </div>
         </header>
         <main className="page-content" id="main-content">
+          {organization?.isDemo && (
+            <div className="alert" role="note">
+              <span>
+                <b>Client dashboard demo · Read-only</b>
+                <br />
+                Explore the website profile, leads, campaigns, inbox and
+                reports. All companies, messages and results are fictional
+                examples. No website tracking, searches or emails run from this
+                workspace.
+              </span>
+            </div>
+          )}
           {notice && (
             <div className="alert success" role="status">
               <span>{notice}</span>

@@ -3,6 +3,7 @@ export type Organization = {
   workspaceId: string;
   name: string;
   role: string;
+  isDemo?: boolean;
   timezone?: string;
   status?: string;
 };
