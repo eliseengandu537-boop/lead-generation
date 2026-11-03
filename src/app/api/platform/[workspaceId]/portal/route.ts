@@ -63,9 +63,9 @@ export async function GET(
         },
       };
     }
-    if (view === "leads")
-      return {
-        items: await db.platformLead.findMany({
+    if (view === "leads") {
+      const [items, total] = await Promise.all([
+        db.platformLead.findMany({
           where: { workspaceId, status: { not: "ARCHIVED" } },
           orderBy: { createdAt: "desc" },
           take: 1000,
@@ -84,34 +84,55 @@ export async function GET(
             createdAt: true,
           },
         }),
+        db.platformLead.count({
+          where: { workspaceId, status: { not: "ARCHIVED" } },
+        }),
+      ]);
+      return { items, total };
+    }
+    if (view === "conversations") {
+      const selection = {
+        id: true,
+        leadId: true,
+        campaignId: true,
+        direction: true,
+        status: true,
+        fromEmail: true,
+        toEmail: true,
+        subject: true,
+        body: true,
+        classification: true,
+        createdAt: true,
+      } as const;
+      const incoming = { workspaceId, direction: "INBOUND" };
+      const outgoing = {
+        workspaceId,
+        direction: "OUTBOUND",
+        status: "ACCEPTED",
       };
-    if (view === "conversations")
-      return {
-        items: await db.platformMailMessage.findMany({
-          where: {
-            workspaceId,
-            OR: [
-              { direction: "INBOUND" },
-              { direction: "OUTBOUND", status: "ACCEPTED" },
-            ],
-          },
+      const [replies, sent, replyCount, sentCount] = await Promise.all([
+        db.platformMailMessage.findMany({
+          where: incoming,
           orderBy: { createdAt: "desc" },
           take: 200,
-          select: {
-            id: true,
-            leadId: true,
-            campaignId: true,
-            direction: true,
-            status: true,
-            fromEmail: true,
-            toEmail: true,
-            subject: true,
-            body: true,
-            classification: true,
-            createdAt: true,
-          },
+          select: selection,
         }),
+        db.platformMailMessage.findMany({
+          where: outgoing,
+          orderBy: { createdAt: "desc" },
+          take: 200,
+          select: selection,
+        }),
+        db.platformMailMessage.count({ where: incoming }),
+        db.platformMailMessage.count({ where: outgoing }),
+      ]);
+      return {
+        items: [...replies, ...sent].sort(
+          (a, b) => b.createdAt.getTime() - a.createdAt.getTime(),
+        ),
+        totals: { replies: replyCount, sent: sentCount },
       };
+    }
     if (view === "updates")
       return {
         items: await db.platformNotice.findMany({

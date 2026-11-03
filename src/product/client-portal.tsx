@@ -612,7 +612,10 @@ function ClientLeads({ data }: { data: RecordValue }) {
             onChange={(event) => setQuery(event.target.value)}
           />
         </label>
-        <span>{items.length} businesses</span>
+        <span>
+          {amount(query ? items.length : (data.total ?? items.length))}{" "}
+          businesses
+        </span>
       </div>
       <section className="surface">
         {items.length ? (
@@ -807,10 +810,11 @@ function ClientConversations({ data }: { data: RecordValue }) {
           }}
         >
           Prospect replies (
-          {
-            rows(data.items).filter((item) => item.direction === "INBOUND")
-              .length
-          }
+          {amount(
+            object(data.totals).replies ??
+              rows(data.items).filter((item) => item.direction === "INBOUND")
+                .length,
+          )}
           )
         </button>
         <button
@@ -820,7 +824,13 @@ function ClientConversations({ data }: { data: RecordValue }) {
             setSelected("");
           }}
         >
-          Sent messages
+          Sent messages (
+          {amount(
+            object(data.totals).sent ??
+              rows(data.items).filter((item) => item.direction === "OUTBOUND")
+                .length,
+          )}
+          )
         </button>
       </div>
       {items.length ? (
