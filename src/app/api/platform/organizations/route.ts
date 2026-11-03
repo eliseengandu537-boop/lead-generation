@@ -13,16 +13,10 @@ export async function POST(request: Request) {
   return handle(async () => {
     await sameOrigin();
     const user = await currentUser();
-    if (
-      !user.agencyAdmin &&
-      (await controlDb.membership.findFirst({
-        where: { userId: user.id, role: "DEMO_VIEWER" },
-        select: { workspaceId: true },
-      }))
-    )
+    if (!user.agencyAdmin)
       throw new HttpError(
         403,
-        "The shared demo login can only view its sample workspace.",
+        "Your account team manages business workspaces. Use your client portal to view results.",
       );
     await rateLimit(`organization-create:${user.id}`, 5, 60);
     const input = organizationInput.parse(await json(request));

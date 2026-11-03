@@ -457,7 +457,7 @@ async function main() {
   process.env.N8N_BASE_URL = "http://localhost:5678";
   process.env.N8N_WEBHOOK_SECRET = "fixture-automation-secret-32-characters";
   const job = await withTenantDatabase(a, () =>
-    enqueueJob(a, users[0], "REPORT", { period: "DAILY" }, `test:${suffix}`),
+    enqueueJob(a, null, "REPORT", { period: "DAILY" }, `test:${suffix}`),
   );
   let admissions = 0;
   await withTenantDatabase(a, () =>
@@ -487,10 +487,13 @@ async function main() {
     data: { status: "READY", leaseUntil: null },
   });
   assert.equal(await processOneJob(a), true);
+  const completedReport = await controlDb.platformJob.findUniqueOrThrow({
+    where: { id: job.id },
+  });
   assert.equal(
-    (await controlDb.platformJob.findUniqueOrThrow({ where: { id: job.id } }))
-      .status,
+    completedReport.status,
     "SUCCEEDED",
+    completedReport.error || "Report job must complete",
   );
   await withTenantDatabase(a, async () => {
     const report = await reportData(a);
@@ -541,6 +544,96 @@ async function main() {
     Origin: base,
     "Content-Type": "application/json",
   };
+  for (const view of [
+    "dashboard",
+    "leads",
+    "campaigns",
+    "conversations",
+    "results",
+    "website",
+    "updates",
+  ]) {
+    const response = await fetch(
+      `${base}/api/platform/${a}/portal?view=${view}`,
+      { headers },
+    );
+    assert.equal(
+      response.status,
+      200,
+      `Client portal ${view}: ${await response.text()}`,
+    );
+  }
+  for (const resource of [
+    "business",
+    "mailboxes",
+    "automation",
+    "settings",
+    "billing",
+    "team",
+    "discovery",
+    "templates",
+    "leads",
+    "campaigns",
+    "inbox",
+    "reports",
+    "overview",
+    "notifications",
+  ]) {
+    assert.equal(
+      (await fetch(`${base}/api/platform/${a}/${resource}`, { headers }))
+        .status,
+      403,
+      `Client cannot access raw ${resource}`,
+    );
+    const blockedWrite = await fetch(`${base}/api/platform/${a}/${resource}`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ action: "update" }),
+    });
+    assert.ok(
+      [403, 405].includes(blockedWrite.status),
+      `Client cannot mutate ${resource}: HTTP ${blockedWrite.status}`,
+    );
+  }
+  assert.equal(
+    (await fetch(`${base}/api/platform/${b}/portal`, { headers })).status,
+    403,
+  );
+  assert.equal(
+    (await fetch(`${base}/api/platform/admin`, { headers })).status,
+    403,
+  );
+  assert.equal(
+    (await fetch(`${base}/api/platform/admin/insights`, { headers })).status,
+    403,
+  );
+  assert.equal(
+    (
+      await fetch(`${base}/api/platform/organizations`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ name: "Forbidden workspace" }),
+      })
+    ).status,
+    403,
+  );
+  // Legacy role names must not restore the former client administration access.
+  await controlDb.membership.update({
+    where: { workspaceId_userId: { workspaceId: a, userId: user.id } },
+    data: { role: "CLIENT_ADMIN" },
+  });
+  assert.equal(
+    (await fetch(`${base}/api/platform/${a}/business`, { headers })).status,
+    403,
+  );
+  pass(
+    "client results work while operational reads, writes, cross-client data and legacy administrator roles remain blocked",
+  );
+  // Only this isolated fixture is elevated for the separate operator checks.
+  await controlDb.user.update({
+    where: { id: user.id },
+    data: { agencyAdmin: true },
+  });
   const importResult = await fetch(`${base}/api/platform/${a}/leads`, {
     method: "POST",
     headers,
@@ -619,18 +712,6 @@ async function main() {
   pass(
     "CSV import cannot establish consent; communication history and retention remain tenant restricted",
   );
-  assert.equal(
-    (await fetch(`${base}/api/platform/${b}/leads`, { headers })).status,
-    403,
-  );
-  assert.equal(
-    (await fetch(`${base}/api/platform/admin`, { headers })).status,
-    403,
-  );
-  assert.equal(
-    (await fetch(`${base}/api/platform/admin/insights`, { headers })).status,
-    403,
-  );
   const created = await fetch(`${base}/api/platform/${a}/templates`, {
     method: "POST",
     headers,
@@ -682,7 +763,7 @@ async function main() {
     assert.equal(response.status, 200, `${resource}: ${await response.text()}`);
   }
   pass(
-    "authenticated HTTP resources work; cross-client access, super-admin escalation, CSRF and retired CRM routes are blocked",
+    "operator HTTP resources work; CSRF and retired CRM routes remain blocked",
   );
   console.log(
     `${checks} integration groups passed. All email and automation network calls were mocked; no real outreach was sent.`,

@@ -1,5 +1,13 @@
 # Verification
 
+## Dedicated client portal — November 3, 2026
+
+- All 24 unit tests, type checking, lint and the production build passed.
+- Eleven local integration groups passed with isolated fixtures, including all seven client portal views, denial of raw operational reads and mutations, blocked workspace creation, cross-client isolation, and denial of operations for legacy CLIENT_ADMIN memberships. Separate operator checks still passed. Email and automation transports were mocked; no outreach was sent.
+- Headless Chrome passed the seven-page client portal at widths 1512 and 390 in light and dark appearances. Lead details, campaign message previews, server authorization, administrator-page redirects, and unavailable visitor analytics labels passed. No horizontal document overflow or browser runtime errors remained. Review fixtures were removed. Screenshots and the local verification record are under `artifacts/concrete/client-portal/local`.
+
+The earlier fourteen-section browser results below describe the operational workspace. Clients now use the dedicated seven-section results portal.
+
 ## Executed locally
 
 - Original PostgreSQL dump restored to an independent database; row counts and sorted full-row fingerprints matched across all 37 original public tables.

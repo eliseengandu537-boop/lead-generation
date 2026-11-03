@@ -6,8 +6,17 @@ import { personalize } from "@/lib/security";
 import { enqueueJob } from "./jobs";
 import { senderMatchesWebsite } from "./mail/domain";
 
-export async function organizationAccess(workspaceId: string, manage = false) {
+export async function organizationAccess(
+  workspaceId: string,
+  manage = false,
+  audience: "operations" | "client" = "operations",
+) {
   const access = await tenant(workspaceId, manage);
+  if (audience === "operations" && !access.user.agencyAdmin)
+    throw new HttpError(
+      403,
+      "Your client portal provides access to results. Workspace operations are managed by your account team.",
+    );
   const organization = await db.platformOrganization.findUnique({
     where: { workspaceId },
   });
@@ -46,7 +55,7 @@ export async function createOrganizationInTransaction(
     data: {
       name: data.name,
       timezone: data.timezone,
-      memberships: { create: { userId: user.id, role: "CLIENT_ADMIN" } },
+      memberships: { create: { userId: user.id, role: "CLIENT_VIEWER" } },
     },
   });
   const organization = await transaction.platformOrganization.create({
@@ -970,7 +979,7 @@ export async function writeResource(
         .object({
           email: z.email().optional(),
           userId: z.string().optional(),
-          role: z.enum(["CLIENT_ADMIN", "SALES_MEMBER"]).optional(),
+          role: z.enum(["CLIENT_VIEWER"]).optional(),
         })
         .parse(input);
       const target = values.userId
@@ -1003,14 +1012,6 @@ export async function writeResource(
       });
       if (!membership && envelope.action !== "add")
         throw new HttpError(404, "Team member not found");
-      if (
-        membership?.role === "CLIENT_ADMIN" &&
-        (envelope.action === "remove" || values.role === "SALES_MEMBER") &&
-        (await transaction.membership.count({
-          where: { workspaceId, role: "CLIENT_ADMIN" },
-        })) <= 1
-      )
-        throw new HttpError(409, "Keep at least one client administrator");
       if (envelope.action === "remove") {
         await transaction.membership.delete({
           where: { workspaceId_userId: { workspaceId, userId: target.id } },

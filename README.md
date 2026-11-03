@@ -25,6 +25,8 @@ For the hosted app with local automation, use `npm run automation:check` and `np
 
 Existing user accounts are preserved. Each new business workspace has independent data and a configurable trial allowance. `npm run admin:create` creates a new platform administrator from temporary `BOOTSTRAP_ADMIN_EMAIL` and `BOOTSTRAP_ADMIN_PASSWORD`; it never changes an existing account.
 
+Clients receive a separate results portal for their leads, campaigns, conversations, website profile and reports. Only platform administrators manage integrations, automation, sending, teams and workspace configuration. Legacy client administrator memberships also use the results portal; they cannot access the operational APIs. New client access uses the CLIENT_VIEWER role.
+
 ## Connect real services
 
 - **Website → Research connections:** each client stores its own encrypted Brave Search and OpenAI keys.

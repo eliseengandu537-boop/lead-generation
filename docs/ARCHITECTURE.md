@@ -18,7 +18,7 @@ Historical tables and migrations remain for recovery; the active Prisma schema d
 
 | Area           | Implementation                                                                                                                                                                                               |
 | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Application    | `src/app` and `src/product`: new Concrete login, workspace selection, overview, research, leads, campaigns, inbox, templates, analytics, website, email, notifications, team, billing and settings              |
+| Application    | `src/app` and `src/product`: new Concrete login, workspace selection, overview, research, leads, campaigns, inbox, templates, analytics, website, email, notifications, team, billing and settings           |
 | Auth           | Existing user identities, bcrypt, eight-hour JWT sessions, session version invalidation, hashed single-use verification/reset tokens and encrypted transactional outbox                                      |
 | Tenant data    | New `Platform*` models; independent organizations, encrypted provider credentials, leads, approvals, campaigns, mailbox messages, feedback, reports, usage and subscriptions                                 |
 | Isolation      | PostgreSQL FORCE RLS; restricted pool; opaque, expiring database capabilities bound after server-side membership authorization; SQL cannot select a tenant using a fabricated plain setting                  |
@@ -30,6 +30,12 @@ Historical tables and migrations remain for recovery; the active Prisma schema d
 | Administration | Aggregate organization counts, access suspension, configurable plan prices/limits and manual verified subscription references                                                                                |
 
 HTTP handlers authorize memberships before binding a tenant pool. Database RLS protects queries even when a business query omits a workspace filter. Workers claim globally through the control pool, then execute one operation inside a restricted tenant scope. Cross-tenant foreign keys supplement RLS.
+
+### Client portal and operations
+
+Non-platform-admin users render `src/product/client-portal.tsx`; platform administrators retain the operations application and Command Centre. The seven-page client portal reads only `/api/platform/[workspaceId]/portal`, where membership and workspace status are checked before tenant binding. Responses explicitly select business-facing fields, excluding provider credentials, internal job payloads, suggested drafts, approval identities and account settings. Raw operational resources and workspace creation require a platform administrator. Existing CLIENT_ADMIN and SALES_MEMBER memberships retain access to their own results, without the former management permissions. New client memberships use CLIENT_VIEWER. No user or client record is deleted or reassigned for this permission change.
+
+Demo workspaces stay read-only and clearly label fictional activity. The results portal does not activate campaign sending, change existing campaigns or connect a mailbox. Website profiles describe outreach targeting; visitor analytics and website enquiry collection remain unconnected and are identified as such in the portal.
 
 ## Email state and recovery
 

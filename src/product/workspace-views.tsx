@@ -182,8 +182,8 @@ export function BusinessView({ data, act, canManage, openDialog }: ViewProps) {
             <br />A lot more relevance.
           </h3>
           <p>
-            The better Concrete understands your business, the more specific your
-            research and outreach can be.
+            The better Concrete understands your business, the more specific
+            your research and outreach can be.
           </p>
           <ul className="check-list">
             <li>
@@ -541,16 +541,13 @@ export function MailboxesView({ data, act, canManage, openDialog }: ViewProps) {
 
 export function TeamView({ data, act, canManage, openDialog }: ViewProps) {
   const items = rows(data.items);
-  const roles = [
-    { value: "CLIENT_ADMIN", label: "Business administrator" },
-    { value: "SALES_MEMBER", label: "Team member" },
-  ];
+  const roles = [{ value: "CLIENT_VIEWER", label: "Client portal access" }];
   return (
     <>
       <SectionHeading
         eyebrow="BUILD SOMETHING TOGETHER"
         title="One business. A well-connected team."
-        detail="Give the right people access to your business workspace, with clear roles and permissions."
+        detail="Give clients and their team access to their results portal. Platform administrators manage business operations."
         action={
           canManage && (
             <button
@@ -572,7 +569,7 @@ export function TeamView({ data, act, canManage, openDialog }: ViewProps) {
                       label: "Workspace role",
                       type: "select",
                       required: true,
-                      value: "SALES_MEMBER",
+                      value: "CLIENT_VIEWER",
                       options: roles,
                     },
                   ],
@@ -699,18 +696,18 @@ export function TeamView({ data, act, canManage, openDialog }: ViewProps) {
       <div className="role-guide">
         <div>
           <ShieldCheck size={21} />
-          <h3>Business administrators</h3>
+          <h3>Platform administrators</h3>
           <p>
-            Manage your business profile, providers, campaigns, team and
+            Manage the business profile, providers, campaigns, team and
             workspace settings.
           </p>
         </div>
         <div>
           <Users size={21} />
-          <h3>Team members</h3>
+          <h3>Client portal members</h3>
           <p>
-            Work with business leads and review campaign activity with the
-            permissions assigned to them.
+            View their business leads, campaign progress, conversations and
+            results. Setup and sending controls stay with the platform team.
           </p>
         </div>
       </div>

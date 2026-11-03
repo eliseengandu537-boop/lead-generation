@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { currentUser, HttpError } from "@/lib/auth";
 import ConcreteApp from "@/product/shell";
+import ClientPortal from "@/product/client-portal";
 export default async function HomePage({
   searchParams,
 }: {
@@ -9,6 +10,7 @@ export default async function HomePage({
   try {
     const user = await currentUser();
     if (user.agencyAdmin && !(await searchParams).client) redirect("/admin");
+    if (!user.agencyAdmin) return <ClientPortal />;
   } catch (error) {
     if (error instanceof HttpError && error.status === 401) redirect("/login");
     throw error;

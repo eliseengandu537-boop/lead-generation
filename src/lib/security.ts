@@ -40,7 +40,7 @@ export function safeEqual(a: string, b: string) {
   return x.length === y.length && timingSafeEqual(x, y);
 }
 export function canManage(role: string) {
-  return ["AGENCY_ADMIN", "CLIENT_ADMIN"].includes(role);
+  return role === "AGENCY_ADMIN";
 }
 export function eligible(
   contact: {

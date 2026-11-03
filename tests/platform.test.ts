@@ -20,7 +20,22 @@ import {
   senderAddress,
 } from "../src/platform/mail/mime";
 import { jobToken } from "../src/platform/jobs";
-import { sign } from "../src/lib/security";
+import { sign, canManage } from "../src/lib/security";
+
+test("client and legacy workspace roles cannot authorize operations", () => {
+  for (const role of [
+    "CLIENT_VIEWER",
+    "DEMO_VIEWER",
+    "CLIENT_ADMIN",
+    "SALES_MEMBER",
+    "OWNER",
+    "ADMIN",
+    "",
+  ]) {
+    assert.equal(canManage(role), false, role);
+  }
+  assert.equal(canManage("AGENCY_ADMIN"), true);
+});
 
 test("website research rejects private networks, tunnels, credential URLs and social accounts", () => {
   for (const value of [
