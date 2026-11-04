@@ -102,6 +102,7 @@ export async function configureAssistant(input: unknown) {
   await controlDb.platformAssistantConfig.upsert({
     where: { id: "openai" },
     create: {
+      id: "openai",
       encryptedApiKey: encrypt(values.apiKey),
       model: values.model,
       connectedAt: new Date(),
