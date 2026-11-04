@@ -114,6 +114,7 @@ export default function AssistantScreen({
     return () => clearInterval(timer);
   }, [conversationId, busy, working, loadConversation]);
   useEffect(() => {
+    if (!runs.length && !busy) return;
     bottom.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
   }, [runs, busy]);
   useEffect(() => {
