@@ -50,7 +50,7 @@ export function directoryQuery(raw: unknown) {
     [key, value] = directoryCategories[input.category];
   return {
     input,
-    query: `[out:json][timeout:20][maxsize:8388608];nwr(around:8000,${lat},${lon})["${key}"="${value}"]["name"];out tags 10;`,
+    query: `[out:json][timeout:20][maxsize:67108864];nwr(around:8000,${lat},${lon})["${key}"="${value}"]["name"];out tags 10;`,
   };
 }
 export async function fetchDirectory(
@@ -99,7 +99,7 @@ export async function fetchDirectory(
   } catch {
     throw new HttpError(
       503,
-      "The public business directory is busy or unavailable. Try later, use website search, or add a lead manually. No leads were invented or saved.",
+      "The public business directory is unavailable right now. Use Search the web below to find businesses, or add a lead manually.",
     );
   }
   const parsed = z

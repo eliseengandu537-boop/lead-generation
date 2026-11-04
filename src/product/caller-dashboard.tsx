@@ -83,6 +83,8 @@ export default function CallerDashboard() {
   const [busy, setBusy] = useState(false);
   const [search, setSearch] = useState("");
   const [directory, setDirectory] = useState<RecordValue | null>(null);
+  const [webNiche, setWebNiche] = useState("");
+  const [webCity, setWebCity] = useState("");
   const [dialog, setDialog] = useState<Dialog | null>(null);
   const [compose, setCompose] = useState(false);
   const [active, setActive] = useState<RecordValue | null>(null);
@@ -780,6 +782,53 @@ export default function CallerDashboard() {
               )}
               {tab === "discover" && (
                 <>
+                  <section className="surface">
+                    <SectionHeading
+                      title="Search the web"
+                      detail="Look up businesses in Google Maps, then add the prospects you want to work with. This option works independently of the public directory and AI services."
+                    />
+                    <div className="caller-form">
+                      <label>
+                        Business niche
+                        <input
+                          value={webNiche}
+                          onChange={(event) => setWebNiche(event.target.value)}
+                          placeholder="e.g. dental practices"
+                        />
+                      </label>
+                      <label>
+                        City or province
+                        <input
+                          value={webCity}
+                          onChange={(event) => setWebCity(event.target.value)}
+                          placeholder="e.g. Johannesburg"
+                        />
+                      </label>
+                      <div className="caller-actions">
+                        {webNiche.trim() && webCity.trim() ? (
+                          <a
+                            className="button primary"
+                            href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(webNiche.trim() + " in " + webCity.trim())}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                          >
+                            Search Google Maps
+                          </a>
+                        ) : (
+                          <p className="muted">
+                            Enter a niche and city to open your search.
+                          </p>
+                        )}
+                        <button onClick={() => editLead()}>
+                          <Plus size={16} /> Add a prospect
+                        </button>
+                      </div>
+                    </div>
+                    <p className="muted">
+                      Search opens in a separate tab. Review the business’s
+                      contact details and source before adding it to Concrete.
+                    </p>
+                  </section>
                   <section className="surface">
                     <SectionHeading
                       title="Find local prospects"
