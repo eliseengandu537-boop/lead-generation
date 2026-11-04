@@ -37,7 +37,17 @@ Non-platform-admin users render `src/product/client-portal.tsx`; platform admini
 
 Demo workspaces stay read-only and clearly label fictional activity. The results portal does not activate campaign sending, change existing campaigns or connect a mailbox. Website profiles describe outreach targeting; visitor analytics and website enquiry collection remain unconnected and are identified as such in the portal.
 
-### Administrator-provisioned client logins
+### Claude operations assistant
+
+The administrator-only assistant uses Anthropic Messages API tool calls with a fixed application tool catalogue. Business text and tool results remain untrusted data. Global configuration, encrypted conversation history, request runs and action receipts use control-only RLS tables, with no tenant grants; conversation and action reads additionally require the owning administrator. Claude's key never enters a prompt or API read response. Users are directed to the separate connection form rather than asked for keys in chat.
+
+Client creation and campaign drafts execute on requested commands. Client creation stores its encrypted, expiring credential receipt in the same transaction as the new user/membership. Campaign mutations use tenant-scoped encrypted operation receipts committed with the actual change. Replaying an operation returns its previous result; reusing its identifier with different content fails. Request IDs, conversation leases, provider/tool/action bounds and interrupted-request states prevent blind replays. Chat history and model tool results exclude generated passwords; only a separate authenticated, non-cacheable action response can reveal a new client's login for 30 minutes.
+
+The model can only prepare a campaign launch review. The administrator separately reviews every selected recipient, personalized message, sender and follow-up before launching. A fingerprint binds reviewed content and eligibility to both approval and start transactions. Content changes invalidate the review, and existing global sending, mailbox-domain, qualification, verification, consent, suppression, subscription and scheduling controls remain authoritative. Launching queues work rather than proving provider acceptance or delivery. Chat cannot enable live sending, alter credentials/roles, establish consent, reset existing accounts, delete records or run arbitrary code/SQL. Research jobs still use the business's existing provider connections and the configured worker.
+
+The API contract follows [Anthropic's tool-call lifecycle](https://platform.claude.com/docs/en/agents-and-tools/tool-use/handle-tool-calls); the selected model is configurable, initially Claude Sonnet 5.5. Existing client records, credentials and archived CRM tables are preserved by the additive migration.
+
+### Administrator-provisioned client logins (form)
 
 `POST /api/platform/admin/client-logins` requires a platform administrator, matching request origin and a per-administrator rate limit. It creates a new non-admin user and CLIENT_VIEWER membership, optionally creating a business and trial subscription in the same transaction. Existing businesses must be active, non-demo organizations with an available team seat. Email and workspace locks prevent duplicate provisioning and concurrent seat overruns. An existing email returns a conflict without changing its password or memberships.
 

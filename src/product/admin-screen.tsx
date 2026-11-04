@@ -49,8 +49,15 @@ import {
 import { ThemeToggle } from "./theme";
 import { MetricNumber, TrendChart } from "./charts";
 import { ClientLoginDialog } from "./client-login-dialog";
+import AssistantScreen from "./assistant-screen";
 
 const navigation = [
+  {
+    id: "assistant",
+    label: "AI Assistant",
+    icon: Bot,
+    detail: "Ask Claude to work with your real clients and campaigns.",
+  },
   {
     id: "command",
     label: "Command Centre",
@@ -864,68 +871,72 @@ export default function AdminScreen() {
           </div>
         </header>
         <main className="page-content admin-content" id="main-content">
-          <SectionHeading
-            eyebrow="THE PLATFORM PERSPECTIVE"
-            title={active.label}
-            detail={active.detail}
-            action={
-              <div className="admin-period">
-                <span className="muted">Chart period</span>
-                {["7", "30", "90"].map((value) => (
-                  <button
-                    key={value}
-                    className={!range && days === value ? "selected" : ""}
-                    aria-pressed={!range && days === value}
-                    onClick={() => {
-                      setDays(value);
-                      setRange("");
-                    }}
-                  >
-                    {value} days
-                  </button>
-                ))}
-              </div>
-            }
-          />
-          <div className="admin-datebar">
-            <form
-              onSubmit={(event) => {
-                event.preventDefault();
-                if (from && to) {
-                  setRange(
-                    `from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
-                  );
+          {tab !== "assistant" && (
+            <>
+              <SectionHeading
+                eyebrow="THE PLATFORM PERSPECTIVE"
+                title={active.label}
+                detail={active.detail}
+                action={
+                  <div className="admin-period">
+                    <span className="muted">Chart period</span>
+                    {["7", "30", "90"].map((value) => (
+                      <button
+                        key={value}
+                        className={!range && days === value ? "selected" : ""}
+                        aria-pressed={!range && days === value}
+                        onClick={() => {
+                          setDays(value);
+                          setRange("");
+                        }}
+                      >
+                        {value} days
+                      </button>
+                    ))}
+                  </div>
                 }
-              }}
-            >
-              <label>
-                From
-                <input
-                  type="date"
-                  aria-label="Start date"
-                  value={from}
-                  required
-                  onChange={(event) => setFrom(event.target.value)}
-                />
-              </label>
-              <label>
-                To
-                <input
-                  type="date"
-                  aria-label="End date"
-                  value={to}
-                  min={from || undefined}
-                  required
-                  onChange={(event) => setTo(event.target.value)}
-                />
-              </label>
-              <button type="submit">Apply range</button>
-            </form>
-            <span>
-              Charts: {text(object(insights.range).from, "—")} —{" "}
-              {text(object(insights.range).to, "—")} · SAST
-            </span>
-          </div>
+              />
+              <div className="admin-datebar">
+                <form
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    if (from && to) {
+                      setRange(
+                        `from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
+                      );
+                    }
+                  }}
+                >
+                  <label>
+                    From
+                    <input
+                      type="date"
+                      aria-label="Start date"
+                      value={from}
+                      required
+                      onChange={(event) => setFrom(event.target.value)}
+                    />
+                  </label>
+                  <label>
+                    To
+                    <input
+                      type="date"
+                      aria-label="End date"
+                      value={to}
+                      min={from || undefined}
+                      required
+                      onChange={(event) => setTo(event.target.value)}
+                    />
+                  </label>
+                  <button type="submit">Apply range</button>
+                </form>
+                <span>
+                  Charts: {text(object(insights.range).from, "—")} —{" "}
+                  {text(object(insights.range).to, "—")} · SAST
+                </span>
+              </div>
+            </>
+          )}
           {error && (
             <div className="alert error" role="alert">
               <span>{error}</span>
@@ -950,6 +961,7 @@ export default function AdminScreen() {
             <Loading />
           ) : (
             <div className="admin-view" key={tab}>
+              {tab === "assistant" && <AssistantScreen />}
               {tab === "command" && (
                 <>
                   <div className="admin-intro">

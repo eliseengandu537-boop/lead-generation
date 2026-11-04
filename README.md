@@ -31,6 +31,8 @@ To create a client login, open **Admin → Clients → Create client login**. En
 
 ## Connect real services
 
+**Admin → AI Assistant** connects Claude to real operations. Enter an Anthropic API key in its separate connection form; a small API request verifies the key before it is stored encrypted. Claude can read the actual client directory, create requested client logins, save campaign drafts, pause campaigns and queue supported research. It never receives generated passwords. New logins are available privately from their action cards for 30 minutes. Sending requires a separate review of the actual sender, recipients, email content and follow-ups, then the administrator's **Approve and launch campaign** action. All existing sending and subscription checks still apply. Claude chat is separate from the business research connections below. It stays disconnected until an API key is supplied; a Claude chat subscription does not configure this API connection.
+
 - **Website → Research connections:** each client stores its own encrypted Brave Search and OpenAI keys.
 - **Google Cloud OAuth:** configure `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and the exact callback `/api/platform/oauth/google/callback`. Each client authorizes its own Google Workspace mailbox matching its website domain. Outreach comes from that client mailbox.
 - **Email verification gateway:** configure `EMAIL_VERIFICATION_URL` and `EMAIL_VERIFICATION_API_KEY`. The HTTPS gateway accepts `POST { email }` with bearer authorization and returns `{ email, status: VALID|INVALID|RISKY|UNKNOWN }`.

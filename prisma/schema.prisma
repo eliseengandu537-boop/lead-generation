@@ -96,6 +96,7 @@ model PlatformOrganization {
   activities            PlatformActivity[]
   usage                 PlatformUsage[]
   subscription          PlatformSubscription?
+  operationReceipts     PlatformOperationReceipt[]
 }
 
 model PlatformLead {
@@ -392,4 +393,76 @@ model PlatformJob {
   @@unique([workspaceId, dedupeKey])
   @@index([status, runAt])
   @@index([workspaceId, createdAt])
+}
+
+model PlatformAssistantConfig {
+  id              String   @id @default("claude")
+  encryptedApiKey String
+  model           String   @default("claude-sonnet-5-5")
+  enabled         Boolean  @default(true)
+  connectedAt     DateTime
+  updatedBy       String
+  updatedAt       DateTime @updatedAt
+}
+
+model PlatformAssistantConversation {
+  id               String                   @id @default(cuid())
+  actorId          String
+  title            String
+  encryptedHistory String
+  activeRunId      String?
+  leaseUntil       DateTime?
+  createdAt        DateTime                 @default(now())
+  updatedAt        DateTime                 @updatedAt
+  runs             PlatformAssistantRun[]
+
+  @@index([actorId, updatedAt])
+}
+
+model PlatformAssistantRun {
+  id                 String                        @id
+  conversationId     String
+  actorId            String
+  encryptedInput     String
+  encryptedResponse  String?
+  status             String                        @default("RUNNING")
+  error              String?
+  createdAt          DateTime                      @default(now())
+  completedAt        DateTime?
+  conversation       PlatformAssistantConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  actions            PlatformAssistantAction[]
+
+  @@index([conversationId, createdAt])
+  @@index([actorId, createdAt])
+}
+
+model PlatformAssistantAction {
+  id               String               @id @default(cuid())
+  runId            String
+  type             String
+  targetBusinessId String?
+  inputHash        String
+  encryptedInput   String
+  encryptedResult  String?
+  summary          String
+  status           String               @default("EXECUTING")
+  error            String?
+  expiresAt        DateTime?
+  createdAt        DateTime             @default(now())
+  completedAt      DateTime?
+  run              PlatformAssistantRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@unique([runId, inputHash])
+  @@index([runId, createdAt])
+}
+
+model PlatformOperationReceipt {
+  workspaceId     String
+  operationKey    String
+  scopeHash       String
+  encryptedResult String
+  createdAt       DateTime             @default(now())
+  organization    PlatformOrganization @relation(fields: [workspaceId], references: [workspaceId], onDelete: Cascade)
+
+  @@id([workspaceId, operationKey])
 }

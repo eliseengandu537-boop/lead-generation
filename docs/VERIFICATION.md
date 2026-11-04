@@ -1,5 +1,11 @@
 # Verification
 
+## Claude administrator assistant — November 4, 2026
+
+Unit coverage adds provider authentication boundaries, safe provider/billing failures without automatic retry, strict tool schemas, secret rejection, user-supplied client addresses, and content-bound sending review fingerprints. Four local database/HTTP integration groups verify atomic client provisioning receipts, repeated-command protection, conflicting identifiers, scoped campaign receipts, cross-business rejection, control-only assistant tables, changed-review rejection, the disabled sending gate, private credential expiry, owner-only action reads and origin checks. These checks make no Claude requests and send no emails. Actual Claude generation requires the administrator's API key and credit; the feature remains disconnected until configured.
+
+All 31 unit tests, type checking, lint and the production build passed. Local browser checks passed the separate Claude connection form, masked keys, conversation history, private credential copy/download, campaign review, blocked sending, Escape-to-close, desktop/mobile layout and zero browser runtime errors. Screenshots under `artifacts/concrete/assistant/local` retain masked passwords. The local test accounts, conversations, businesses and downloaded credentials were removed.
+
 ## Administrator-created client logins — November 3, 2026
 
 All 24 unit tests, type checking, lint and the production build passed. Twelve local integration groups passed, including administrator-only login provisioning, existing and new business membership, immediate sign-in with a generated password, bcrypt verification, duplicate-email conflict handling, atomic rollback for an invalid business, cache prevention, secret exclusion from directory and audit reads, and blocked client access to other businesses and administration. No email is queued by provisioning, and all campaign transports in the integration checks were mocked.

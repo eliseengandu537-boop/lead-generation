@@ -2,9 +2,11 @@ import { Prisma, type PlatformLead } from "@prisma/client";
 import { z } from "zod";
 import { controlDb, db } from "@/lib/db";
 import { currentUser, HttpError, tenant } from "@/lib/auth";
-import { personalize } from "@/lib/security";
+import { personalize, encrypt, decrypt, hash } from "@/lib/security";
+import { campaignReviewData } from "./mail/review";
 import { enqueueJob } from "./jobs";
 import { senderMatchesWebsite } from "./mail/domain";
+import { databaseContext } from "@/lib/tenancy";
 
 export async function organizationAccess(
   workspaceId: string,
@@ -379,17 +381,40 @@ export async function writeResource(
   workspaceId: string,
   resource: string,
   input: unknown,
+  operation?: { idempotencyKey?: string; campaignReviewHash?: string },
 ) {
+  const access = await organizationAccess(
+    workspaceId,
+    resource !== "notifications",
+  );
+  return mutateAuthorizedResource(access, resource, input, operation);
+}
+
+/** Internal mutation service. Authorization and a matching tenant capability
+ * are mandatory; this is not an alternate HTTP authentication mechanism. */
+export async function mutateAuthorizedResource(
+  access: Awaited<ReturnType<typeof organizationAccess>>,
+  resource: string,
+  input: unknown,
+  operation?: { idempotencyKey?: string; campaignReviewHash?: string },
+) {
+  const workspaceId = access.organization.workspaceId;
+  if (
+    !access.user.agencyAdmin ||
+    access.role !== "AGENCY_ADMIN" ||
+    access.workspace.id !== workspaceId ||
+    databaseContext()?.workspaceId !== workspaceId
+  )
+    throw new HttpError(
+      403,
+      "An authorized administrator and matching business context are required.",
+    );
   const envelope = z
     .object({
       action: z.string().default("update"),
       id: z.string().max(100).optional(),
     })
     .parse(input);
-  const access = await organizationAccess(
-    workspaceId,
-    resource !== "notifications",
-  );
   const { user, organization } = access;
   if (organization.onboardingStatus === "DEMO")
     throw new HttpError(
@@ -424,721 +449,791 @@ export async function writeResource(
   }
   return db.$transaction(async (transaction) => {
     await transaction.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${workspaceId}))`;
-    if (resource === "leads") {
-      if (envelope.action === "import") {
-        const inputRows = z
-          .object({ items: z.array(leadFields).min(1).max(100) })
-          .parse(input).items;
-        const imported = await transaction.platformLead.createMany({
-          skipDuplicates: true,
-          data: inputRows.map((row) => ({
-            workspaceId,
-            company: row.company,
-            name: row.name,
-            email: row.email,
-            website: row.website,
-            phone: row.phone,
-            industry: row.industry,
-            location: row.location,
-            sourceKind: "CSV",
-            eligibility: "UNKNOWN",
-          })),
-        });
-        await audit(
-          transaction,
-          workspaceId,
-          user.id,
-          "LEADS_IMPORTED",
-          `${imported.count} CSV businesses imported without implied marketing consent`,
-        );
-        return {
-          message: `${imported.count} businesses imported. ${inputRows.length - imported.count} duplicate addresses skipped. Review marketing permission before outreach.`,
-        };
+    const operationKey = operation?.idempotencyKey;
+    const scopeHash = hash(
+      JSON.stringify({
+        resource,
+        input,
+        review: operation?.campaignReviewHash,
+      }),
+    );
+    if (operationKey) {
+      const receipt = await transaction.platformOperationReceipt.findUnique({
+        where: { workspaceId_operationKey: { workspaceId, operationKey } },
+      });
+      if (receipt) {
+        if (receipt.scopeHash !== scopeHash)
+          throw new HttpError(
+            409,
+            "This action identifier was already used for a different request.",
+          );
+        return JSON.parse(decrypt(receipt.encryptedResult));
       }
-      if (envelope.action === "delete" || envelope.action === "archive") {
-        const lead = await transaction.platformLead.findUnique({
-          where: { id: envelope.id || "" },
-        });
-        if (!lead) throw new HttpError(404, "Lead not found");
-        if (lead.email)
-          await transaction.platformMailSuppression.upsert({
-            where: { workspaceId_email: { workspaceId, email: lead.email } },
-            create: {
+    }
+    const perform = async () => {
+      if (resource === "leads") {
+        if (envelope.action === "import") {
+          const inputRows = z
+            .object({ items: z.array(leadFields).min(1).max(100) })
+            .parse(input).items;
+          const imported = await transaction.platformLead.createMany({
+            skipDuplicates: true,
+            data: inputRows.map((row) => ({
               workspaceId,
-              email: lead.email,
-              reason: "Lead archived by client",
-            },
-            update: {},
+              company: row.company,
+              name: row.name,
+              email: row.email,
+              website: row.website,
+              phone: row.phone,
+              industry: row.industry,
+              location: row.location,
+              sourceKind: "CSV",
+              eligibility: "UNKNOWN",
+            })),
           });
-        const archived = await transaction.platformLead.update({
-          where: { id: lead.id },
-          data: { status: "ARCHIVED", eligibility: "SUPPRESSED" },
-        });
+          await audit(
+            transaction,
+            workspaceId,
+            user.id,
+            "LEADS_IMPORTED",
+            `${imported.count} CSV businesses imported without implied marketing consent`,
+          );
+          return {
+            message: `${imported.count} businesses imported. ${inputRows.length - imported.count} duplicate addresses skipped. Review marketing permission before outreach.`,
+          };
+        }
+        if (envelope.action === "delete" || envelope.action === "archive") {
+          const lead = await transaction.platformLead.findUnique({
+            where: { id: envelope.id || "" },
+          });
+          if (!lead) throw new HttpError(404, "Lead not found");
+          if (lead.email)
+            await transaction.platformMailSuppression.upsert({
+              where: { workspaceId_email: { workspaceId, email: lead.email } },
+              create: {
+                workspaceId,
+                email: lead.email,
+                reason: "Lead archived by client",
+              },
+              update: {},
+            });
+          const archived = await transaction.platformLead.update({
+            where: { id: lead.id },
+            data: { status: "ARCHIVED", eligibility: "SUPPRESSED" },
+          });
+          await audit(
+            transaction,
+            workspaceId,
+            user.id,
+            "LEAD_ARCHIVED",
+            lead.company,
+            { leadId: lead.id },
+          );
+          return archived;
+        }
+        if (!["create", "update"].includes(envelope.action))
+          throw new HttpError(400, "Unknown lead action");
+        const existing =
+          envelope.action === "update"
+            ? await transaction.platformLead.findUnique({
+                where: { id: envelope.id || "" },
+              })
+            : null;
+        if (envelope.action === "update" && !existing)
+          throw new HttpError(404, "Lead not found");
+        const data =
+          envelope.action === "create"
+            ? leadFields.parse(input)
+            : leadFields.partial().parse(input);
+        if (
+          data.ownerId &&
+          !(await transaction.membership.findUnique({
+            where: {
+              workspaceId_userId: { workspaceId, userId: data.ownerId },
+            },
+          }))
+        )
+          throw new HttpError(400, "Owner must be a member of this business");
+        const eligibility = data.eligibility ?? existing?.eligibility;
+        const consentSource =
+          data.consentSource === undefined
+            ? existing?.consentSource
+            : data.consentSource;
+        const consentAt =
+          data.consentAt === undefined
+            ? existing?.consentAt
+            : data.consentAt
+              ? new Date(data.consentAt)
+              : null;
+        if (
+          eligibility === "CONSENTED" &&
+          (!consentSource?.trim() || !consentAt || consentAt > new Date())
+        )
+          throw new HttpError(
+            400,
+            "Document the actual consent source and date before marking consented",
+          );
+        const changingEmail =
+          existing && data.email !== undefined && data.email !== existing.email;
+        const converted = {
+          ...data,
+          consentAt,
+          ...(data.status === "UNSUBSCRIBED"
+            ? { eligibility: "SUPPRESSED", unsubscribedAt: new Date() }
+            : {}),
+          ...(changingEmail
+            ? {
+                eligibility: "UNKNOWN",
+                consentSource: null,
+                consentAt: null,
+                verificationStatus: "UNKNOWN",
+                verifiedAt: null,
+                qualificationScore: null,
+                qualificationCategory: null,
+                qualificationExplanation: null,
+                qualifiedAt: null,
+                draftSubject: "",
+                draftBody: "",
+              }
+            : {}),
+        };
+        const lead = existing
+          ? await transaction.platformLead.update({
+              where: { id: existing.id },
+              data: converted,
+            })
+          : await transaction.platformLead.create({
+              data: {
+                ...leadFields.parse(input),
+                ...converted,
+                workspaceId,
+                company: data.company!,
+              },
+            });
+        if (
+          existing &&
+          Object.keys(data).some((key) => !["notes", "ownerId"].includes(key))
+        ) {
+          await transaction.platformCampaignRecipient.updateMany({
+            where: { leadId: lead.id },
+            data: { approvedAt: null, approvedBy: null },
+          });
+          await transaction.platformCampaign.updateMany({
+            where: {
+              recipients: { some: { leadId: lead.id } },
+              status: { in: ["APPROVED", "RUNNING", "PAUSED"] },
+            },
+            data: { status: "PAUSED", approvedAt: null, approvedBy: null },
+          });
+        }
         await audit(
           transaction,
           workspaceId,
           user.id,
-          "LEAD_ARCHIVED",
+          existing ? "LEAD_UPDATED" : "LEAD_CREATED",
           lead.company,
           { leadId: lead.id },
         );
-        return archived;
+        return lead;
       }
-      if (!["create", "update"].includes(envelope.action))
-        throw new HttpError(400, "Unknown lead action");
-      const existing =
-        envelope.action === "update"
-          ? await transaction.platformLead.findUnique({
-              where: { id: envelope.id || "" },
-            })
-          : null;
-      if (envelope.action === "update" && !existing)
-        throw new HttpError(404, "Lead not found");
-      const data =
-        envelope.action === "create"
-          ? leadFields.parse(input)
-          : leadFields.partial().parse(input);
-      if (
-        data.ownerId &&
-        !(await transaction.membership.findUnique({
-          where: { workspaceId_userId: { workspaceId, userId: data.ownerId } },
-        }))
-      )
-        throw new HttpError(400, "Owner must be a member of this business");
-      const eligibility = data.eligibility ?? existing?.eligibility;
-      const consentSource =
-        data.consentSource === undefined
-          ? existing?.consentSource
-          : data.consentSource;
-      const consentAt =
-        data.consentAt === undefined
-          ? existing?.consentAt
-          : data.consentAt
-            ? new Date(data.consentAt)
+      if (resource === "templates") {
+        const existing =
+          envelope.action !== "create"
+            ? await transaction.platformTemplate.findUnique({
+                where: { id: envelope.id || "" },
+              })
             : null;
-      if (
-        eligibility === "CONSENTED" &&
-        (!consentSource?.trim() || !consentAt || consentAt > new Date())
-      )
-        throw new HttpError(
-          400,
-          "Document the actual consent source and date before marking consented",
-        );
-      const changingEmail =
-        existing && data.email !== undefined && data.email !== existing.email;
-      const converted = {
-        ...data,
-        consentAt,
-        ...(data.status === "UNSUBSCRIBED"
-          ? { eligibility: "SUPPRESSED", unsubscribedAt: new Date() }
-          : {}),
-        ...(changingEmail
-          ? {
-              eligibility: "UNKNOWN",
-              consentSource: null,
-              consentAt: null,
-              verificationStatus: "UNKNOWN",
-              verifiedAt: null,
-              qualificationScore: null,
-              qualificationCategory: null,
-              qualificationExplanation: null,
-              qualifiedAt: null,
-              draftSubject: "",
-              draftBody: "",
-            }
-          : {}),
-      };
-      const lead = existing
-        ? await transaction.platformLead.update({
-            where: { id: existing.id },
-            data: converted,
-          })
-        : await transaction.platformLead.create({
+        if (envelope.action !== "create" && !existing)
+          throw new HttpError(404, "Template not found");
+        if (envelope.action === "approve") {
+          const result = await transaction.platformTemplate.update({
+            where: { id: existing!.id },
             data: {
-              ...leadFields.parse(input),
-              ...converted,
-              workspaceId,
-              company: data.company!,
-            },
-          });
-      if (
-        existing &&
-        Object.keys(data).some((key) => !["notes", "ownerId"].includes(key))
-      ) {
-        await transaction.platformCampaignRecipient.updateMany({
-          where: { leadId: lead.id },
-          data: { approvedAt: null, approvedBy: null },
-        });
-        await transaction.platformCampaign.updateMany({
-          where: {
-            recipients: { some: { leadId: lead.id } },
-            status: { in: ["APPROVED", "RUNNING", "PAUSED"] },
-          },
-          data: { status: "PAUSED", approvedAt: null, approvedBy: null },
-        });
-      }
-      await audit(
-        transaction,
-        workspaceId,
-        user.id,
-        existing ? "LEAD_UPDATED" : "LEAD_CREATED",
-        lead.company,
-        { leadId: lead.id },
-      );
-      return lead;
-    }
-    if (resource === "templates") {
-      const existing =
-        envelope.action !== "create"
-          ? await transaction.platformTemplate.findUnique({
-              where: { id: envelope.id || "" },
-            })
-          : null;
-      if (envelope.action !== "create" && !existing)
-        throw new HttpError(404, "Template not found");
-      if (envelope.action === "approve") {
-        const result = await transaction.platformTemplate.update({
-          where: { id: existing!.id },
-          data: {
-            approvalStatus: "APPROVED",
-            approvedAt: new Date(),
-            approvedBy: user.id,
-          },
-        });
-        await audit(
-          transaction,
-          workspaceId,
-          user.id,
-          "TEMPLATE_APPROVED",
-          result.name,
-        );
-        return result;
-      }
-      if (envelope.action === "delete") {
-        if (
-          await transaction.platformCampaign.count({
-            where: { templateId: existing!.id },
-          })
-        )
-          throw new HttpError(409, "This template is referenced by a campaign");
-        await transaction.platformTemplate.delete({
-          where: { id: existing!.id },
-        });
-        await audit(
-          transaction,
-          workspaceId,
-          user.id,
-          "TEMPLATE_DELETED",
-          existing!.name,
-        );
-        return { ok: true };
-      }
-      if (!["create", "update"].includes(envelope.action))
-        throw new HttpError(400, "Unknown template action");
-      const values =
-        envelope.action === "create"
-          ? templateFields.parse(input)
-          : templateFields.partial().parse(input);
-      const result = existing
-        ? await transaction.platformTemplate.update({
-            where: { id: existing.id },
-            data: {
-              ...values,
-              approvalStatus: "DRAFT",
-              approvedAt: null,
-              approvedBy: null,
-            },
-          })
-        : await transaction.platformTemplate.create({
-            data: { ...templateFields.parse(input), workspaceId },
-          });
-      await audit(
-        transaction,
-        workspaceId,
-        user.id,
-        "TEMPLATE_SAVED",
-        result.name,
-      );
-      return result;
-    }
-    if (resource === "campaigns") {
-      const existing =
-        envelope.action !== "create"
-          ? await transaction.platformCampaign.findUnique({
-              where: { id: envelope.id || "" },
-              include: { recipients: { include: { lead: true } } },
-            })
-          : null;
-      if (envelope.action !== "create" && !existing)
-        throw new HttpError(404, "Campaign not found");
-      if (["create", "update"].includes(envelope.action)) {
-        if (
-          existing &&
-          !["DRAFT", "APPROVED", "PAUSED"].includes(existing.status)
-        )
-          throw new HttpError(409, "Pause this campaign before editing");
-        if (
-          existing &&
-          (await transaction.platformMailMessage.count({
-            where: { campaignId: existing.id, direction: "OUTBOUND" },
-          }))
-        )
-          throw new HttpError(
-            409,
-            "Campaigns with send history cannot be rewritten; create a new campaign",
-          );
-        const values = existing
-          ? campaignFields.partial().parse(input)
-          : campaignFields.parse(input);
-        if (
-          values.mailboxId &&
-          !(await transaction.platformMailbox.findUnique({
-            where: { id: values.mailboxId },
-          }))
-        )
-          throw new HttpError(400, "Mailbox does not belong to this business");
-        const template = values.templateId
-          ? await transaction.platformTemplate.findFirst({
-              where: { id: values.templateId, approvalStatus: "APPROVED" },
-            })
-          : null;
-        if (values.templateId && !template)
-          throw new HttpError(
-            400,
-            "Choose an approved template from this business",
-          );
-        const subjectValue =
-          values.subject ?? template?.subject ?? existing?.subject;
-        const bodyValue = values.body ?? template?.body ?? existing?.body;
-        if (!subjectValue || !bodyValue)
-          throw new HttpError(400, "Campaign subject and message are required");
-        const { leadIds, scheduledAt, target, ...stored } = values;
-        if (
-          (values.sendStartHour ?? existing?.sendStartHour ?? 8) ===
-          (values.sendEndHour ?? existing?.sendEndHour ?? 17)
-        )
-          throw new HttpError(400, "Sending start and end hours must differ");
-        if (leadIds && new Set(leadIds).size !== leadIds.length)
-          throw new HttpError(400, "Choose each lead only once");
-        if (
-          leadIds &&
-          (await transaction.platformLead.count({
-            where: { id: { in: leadIds }, status: { not: "ARCHIVED" } },
-          })) !== leadIds.length
-        )
-          throw new HttpError(
-            400,
-            "One or more leads do not belong to this business",
-          );
-        const data = {
-          ...stored,
-          subject: subjectValue,
-          body: bodyValue,
-          ...(target ? { target: target as Prisma.InputJsonValue } : {}),
-          ...(scheduledAt !== undefined
-            ? { scheduledAt: scheduledAt ? new Date(scheduledAt) : null }
-            : {}),
-          status: "DRAFT",
-          approvedAt: null,
-          approvedBy: null,
-        };
-        const campaign = existing
-          ? await transaction.platformCampaign.update({
-              where: { id: existing.id },
-              data,
-            })
-          : await transaction.platformCampaign.create({
-              data: { ...data, name: values.name!, workspaceId },
-            });
-        if (leadIds) {
-          await transaction.platformCampaignRecipient.deleteMany({
-            where: { campaignId: campaign.id },
-          });
-          if (leadIds.length)
-            await transaction.platformCampaignRecipient.createMany({
-              data: leadIds.map((leadId) => ({
-                workspaceId,
-                campaignId: campaign.id,
-                leadId,
-              })),
-            });
-        } else if (existing) {
-          await transaction.platformCampaignRecipient.updateMany({
-            where: { campaignId: existing.id },
-            data: { approvedAt: null, approvedBy: null },
-          });
-        }
-        await audit(
-          transaction,
-          workspaceId,
-          user.id,
-          "CAMPAIGN_SAVED",
-          campaign.name,
-          { campaignId: campaign.id },
-        );
-        return campaign;
-      }
-      if (envelope.action === "approve") {
-        if (!["DRAFT", "PAUSED", "APPROVED"].includes(existing!.status))
-          throw new HttpError(
-            409,
-            "Campaign cannot be approved in its current state",
-          );
-        if (!organization.profileApprovedAt)
-          throw new HttpError(
-            409,
-            "Review and approve the business profile first",
-          );
-        if (!existing!.recipients.length)
-          throw new HttpError(400, "Select at least one lead");
-        const approvedAt = new Date();
-        for (const recipient of existing!.recipients) {
-          const hasDraft =
-            !!recipient.lead.draftSubject.trim() &&
-            !!recipient.lead.draftBody.trim();
-          const contact = {
-            name: recipient.lead.name,
-            company: recipient.lead.company,
-            email: recipient.lead.email || "",
-          };
-          await transaction.platformCampaignRecipient.update({
-            where: { id: recipient.id },
-            data: {
-              subject: hasDraft
-                ? recipient.lead.draftSubject
-                : personalize(existing!.subject, contact),
-              body: hasDraft
-                ? recipient.lead.draftBody
-                : personalize(existing!.body, contact),
-              approvedAt,
+              approvalStatus: "APPROVED",
+              approvedAt: new Date(),
               approvedBy: user.id,
             },
           });
+          await audit(
+            transaction,
+            workspaceId,
+            user.id,
+            "TEMPLATE_APPROVED",
+            result.name,
+          );
+          return result;
         }
-        const result = await transaction.platformCampaign.update({
-          where: { id: existing!.id },
-          data: { status: "APPROVED", approvedAt, approvedBy: user.id },
-        });
-        await audit(
-          transaction,
-          workspaceId,
-          user.id,
-          "CAMPAIGN_APPROVED",
-          result.name,
-          { campaignId: result.id },
-        );
-        return result;
-      }
-      if (envelope.action === "pause" || envelope.action === "cancel") {
-        if (["COMPLETED", "CANCELLED"].includes(existing!.status))
-          throw new HttpError(409, "Campaign is already finished");
-        const result = await transaction.platformCampaign.update({
-          where: { id: existing!.id },
-          data: {
-            status: envelope.action === "pause" ? "PAUSED" : "CANCELLED",
-          },
-        });
-        if (envelope.action === "cancel")
-          await transaction.platformCampaignRecipient.updateMany({
-            where: { campaignId: result.id, status: "QUEUED" },
-            data: { status: "CANCELLED" },
-          });
-        await audit(
-          transaction,
-          workspaceId,
-          user.id,
-          "CAMPAIGN_" + result.status,
-          result.name,
-          { campaignId: result.id },
-        );
-        return result;
-      }
-      if (envelope.action === "start" || envelope.action === "resume") {
-        if (
-          !["APPROVED", "PAUSED"].includes(existing!.status) ||
-          !existing!.approvedAt ||
-          !existing!.approvedBy
-        )
-          throw new HttpError(409, "Approve this campaign before starting");
-        if (process.env.LIVE_EMAIL_ENABLED !== "true")
-          throw new HttpError(
-            503,
-            "Live sending is not enabled by the platform administrator",
-          );
-        if (!organization.profileApprovedAt)
-          throw new HttpError(409, "Business profile approval is required");
-        if (existing!.safetyPausedAt)
-          throw new HttpError(
-            409,
-            "Campaign is held for a sending safety review",
-          );
-        const mailbox = existing!.mailboxId
-          ? await transaction.platformMailbox.findUnique({
-              where: { id: existing!.mailboxId },
-            })
-          : null;
-        if (
-          !mailbox ||
-          mailbox.status !== "LIVE_ENABLED" ||
-          !senderMatchesWebsite(mailbox.email, [organization.websiteUrl])
-        )
-          throw new HttpError(
-            409,
-            "Connect and activate this business's domain-matched mailbox",
-          );
-        const subscription = await transaction.platformSubscription.findUnique({
-          where: { workspaceId },
-          include: { plan: true },
-        });
-        if (
-          !subscription ||
-          !["ACTIVE", "TRIAL"].includes(subscription.status) ||
-          (subscription.periodEnd && subscription.periodEnd < new Date())
-        )
-          throw new HttpError(
-            403,
-            "An active subscription or trial is required",
-          );
-        if (subscription.plan.dailyEmails < 1)
-          throw new HttpError(403, "This plan does not include email sending");
-        const minimum = minimumQualificationScore(
-          organization.qualificationCriteria,
-        );
-        const pending = existing!.recipients.filter((recipient) =>
-          ["QUEUED", "PENDING"].includes(recipient.status),
-        );
-        if (!pending.length)
-          throw new HttpError(409, "No pending recipients remain");
-        for (const recipient of pending) {
+        if (envelope.action === "delete") {
           if (
-            !recipient.approvedAt ||
-            !recipient.approvedBy ||
-            !recipient.subject ||
-            !recipient.body
+            await transaction.platformCampaign.count({
+              where: { templateId: existing!.id },
+            })
           )
             throw new HttpError(
               409,
-              "Every recipient needs an approved message",
+              "This template is referenced by a campaign",
             );
-          const blocker = leadSendBlocker(recipient.lead, minimum);
-          if (blocker)
-            throw new HttpError(409, `${recipient.lead.company}: ${blocker}`);
-          if (
-            await transaction.platformMailSuppression.findUnique({
-              where: {
-                workspaceId_email: {
-                  workspaceId,
-                  email: recipient.lead.email!,
-                },
+          await transaction.platformTemplate.delete({
+            where: { id: existing!.id },
+          });
+          await audit(
+            transaction,
+            workspaceId,
+            user.id,
+            "TEMPLATE_DELETED",
+            existing!.name,
+          );
+          return { ok: true };
+        }
+        if (!["create", "update"].includes(envelope.action))
+          throw new HttpError(400, "Unknown template action");
+        const values =
+          envelope.action === "create"
+            ? templateFields.parse(input)
+            : templateFields.partial().parse(input);
+        const result = existing
+          ? await transaction.platformTemplate.update({
+              where: { id: existing.id },
+              data: {
+                ...values,
+                approvalStatus: "DRAFT",
+                approvedAt: null,
+                approvedBy: null,
               },
             })
-          )
-            throw new HttpError(409, "A selected recipient is suppressed");
-        }
-        const result = await transaction.platformCampaign.update({
-          where: { id: existing!.id },
-          data: { status: "RUNNING" },
-        });
-        const job = await enqueueJob(
-          workspaceId,
-          user.id,
-          "SEND_CAMPAIGN",
-          { campaignId: result.id },
-          `campaign:${result.id}:${Date.now()}`,
-          transaction,
-        );
+          : await transaction.platformTemplate.create({
+              data: { ...templateFields.parse(input), workspaceId },
+            });
         await audit(
           transaction,
           workspaceId,
           user.id,
-          "CAMPAIGN_STARTED",
+          "TEMPLATE_SAVED",
           result.name,
-          { campaignId: result.id },
         );
-        return { ...result, job };
+        return result;
       }
-      throw new HttpError(400, "Unknown campaign action");
-    }
-    if (resource === "notifications") {
-      if (envelope.action === "read-all") {
-        await transaction.$executeRaw`UPDATE "PlatformNotice" SET "readBy" = array_append("readBy",${user.id}) WHERE "workspaceId"=${workspaceId} AND NOT (${user.id}=ANY("readBy"))`;
-        return { read: true };
+      if (resource === "campaigns") {
+        const existing =
+          envelope.action !== "create"
+            ? await transaction.platformCampaign.findUnique({
+                where: { id: envelope.id || "" },
+                include: { recipients: { include: { lead: true } } },
+              })
+            : null;
+        if (envelope.action !== "create" && !existing)
+          throw new HttpError(404, "Campaign not found");
+        if (operation?.campaignReviewHash && existing) {
+          const currentOrganization =
+            await transaction.platformOrganization.findUniqueOrThrow({
+              where: { workspaceId },
+            });
+          const currentMailbox = existing.mailboxId
+            ? await transaction.platformMailbox.findUnique({
+                where: { id: existing.mailboxId },
+                select: { id: true, email: true, provider: true, status: true },
+              })
+            : null;
+          if (
+            campaignReviewData(existing, currentOrganization, currentMailbox)
+              .fingerprint !== operation.campaignReviewHash
+          )
+            throw new HttpError(
+              409,
+              "The campaign, sender or recipients changed after review. Prepare a fresh email review before sending.",
+            );
+        }
+        if (["create", "update"].includes(envelope.action)) {
+          if (
+            existing &&
+            !["DRAFT", "APPROVED", "PAUSED"].includes(existing.status)
+          )
+            throw new HttpError(409, "Pause this campaign before editing");
+          if (
+            existing &&
+            (await transaction.platformMailMessage.count({
+              where: { campaignId: existing.id, direction: "OUTBOUND" },
+            }))
+          )
+            throw new HttpError(
+              409,
+              "Campaigns with send history cannot be rewritten; create a new campaign",
+            );
+          const values = existing
+            ? campaignFields.partial().parse(input)
+            : campaignFields.parse(input);
+          if (
+            values.mailboxId &&
+            !(await transaction.platformMailbox.findUnique({
+              where: { id: values.mailboxId },
+            }))
+          )
+            throw new HttpError(
+              400,
+              "Mailbox does not belong to this business",
+            );
+          const template = values.templateId
+            ? await transaction.platformTemplate.findFirst({
+                where: { id: values.templateId, approvalStatus: "APPROVED" },
+              })
+            : null;
+          if (values.templateId && !template)
+            throw new HttpError(
+              400,
+              "Choose an approved template from this business",
+            );
+          const subjectValue =
+            values.subject ?? template?.subject ?? existing?.subject;
+          const bodyValue = values.body ?? template?.body ?? existing?.body;
+          if (!subjectValue || !bodyValue)
+            throw new HttpError(
+              400,
+              "Campaign subject and message are required",
+            );
+          const { leadIds, scheduledAt, target, ...stored } = values;
+          if (
+            (values.sendStartHour ?? existing?.sendStartHour ?? 8) ===
+            (values.sendEndHour ?? existing?.sendEndHour ?? 17)
+          )
+            throw new HttpError(400, "Sending start and end hours must differ");
+          if (leadIds && new Set(leadIds).size !== leadIds.length)
+            throw new HttpError(400, "Choose each lead only once");
+          if (
+            leadIds &&
+            (await transaction.platformLead.count({
+              where: { id: { in: leadIds }, status: { not: "ARCHIVED" } },
+            })) !== leadIds.length
+          )
+            throw new HttpError(
+              400,
+              "One or more leads do not belong to this business",
+            );
+          const data = {
+            ...stored,
+            subject: subjectValue,
+            body: bodyValue,
+            ...(target ? { target: target as Prisma.InputJsonValue } : {}),
+            ...(scheduledAt !== undefined
+              ? { scheduledAt: scheduledAt ? new Date(scheduledAt) : null }
+              : {}),
+            status: "DRAFT",
+            approvedAt: null,
+            approvedBy: null,
+          };
+          const campaign = existing
+            ? await transaction.platformCampaign.update({
+                where: { id: existing.id },
+                data,
+              })
+            : await transaction.platformCampaign.create({
+                data: { ...data, name: values.name!, workspaceId },
+              });
+          if (leadIds) {
+            await transaction.platformCampaignRecipient.deleteMany({
+              where: { campaignId: campaign.id },
+            });
+            if (leadIds.length)
+              await transaction.platformCampaignRecipient.createMany({
+                data: leadIds.map((leadId) => ({
+                  workspaceId,
+                  campaignId: campaign.id,
+                  leadId,
+                })),
+              });
+          } else if (existing) {
+            await transaction.platformCampaignRecipient.updateMany({
+              where: { campaignId: existing.id },
+              data: { approvedAt: null, approvedBy: null },
+            });
+          }
+          await audit(
+            transaction,
+            workspaceId,
+            user.id,
+            "CAMPAIGN_SAVED",
+            campaign.name,
+            { campaignId: campaign.id },
+          );
+          return campaign;
+        }
+        if (envelope.action === "approve") {
+          if (!["DRAFT", "PAUSED", "APPROVED"].includes(existing!.status))
+            throw new HttpError(
+              409,
+              "Campaign cannot be approved in its current state",
+            );
+          if (!organization.profileApprovedAt)
+            throw new HttpError(
+              409,
+              "Review and approve the business profile first",
+            );
+          if (!existing!.recipients.length)
+            throw new HttpError(400, "Select at least one lead");
+          const approvedAt = new Date();
+          for (const recipient of existing!.recipients) {
+            const hasDraft =
+              !!recipient.lead.draftSubject.trim() &&
+              !!recipient.lead.draftBody.trim();
+            const contact = {
+              name: recipient.lead.name,
+              company: recipient.lead.company,
+              email: recipient.lead.email || "",
+            };
+            await transaction.platformCampaignRecipient.update({
+              where: { id: recipient.id },
+              data: {
+                subject: hasDraft
+                  ? recipient.lead.draftSubject
+                  : personalize(existing!.subject, contact),
+                body: hasDraft
+                  ? recipient.lead.draftBody
+                  : personalize(existing!.body, contact),
+                approvedAt,
+                approvedBy: user.id,
+              },
+            });
+          }
+          const result = await transaction.platformCampaign.update({
+            where: { id: existing!.id },
+            data: { status: "APPROVED", approvedAt, approvedBy: user.id },
+          });
+          await audit(
+            transaction,
+            workspaceId,
+            user.id,
+            "CAMPAIGN_APPROVED",
+            result.name,
+            { campaignId: result.id },
+          );
+          return result;
+        }
+        if (envelope.action === "pause" || envelope.action === "cancel") {
+          if (["COMPLETED", "CANCELLED"].includes(existing!.status))
+            throw new HttpError(409, "Campaign is already finished");
+          const result = await transaction.platformCampaign.update({
+            where: { id: existing!.id },
+            data: {
+              status: envelope.action === "pause" ? "PAUSED" : "CANCELLED",
+            },
+          });
+          if (envelope.action === "cancel")
+            await transaction.platformCampaignRecipient.updateMany({
+              where: { campaignId: result.id, status: "QUEUED" },
+              data: { status: "CANCELLED" },
+            });
+          await audit(
+            transaction,
+            workspaceId,
+            user.id,
+            "CAMPAIGN_" + result.status,
+            result.name,
+            { campaignId: result.id },
+          );
+          return result;
+        }
+        if (envelope.action === "start" || envelope.action === "resume") {
+          if (
+            !["APPROVED", "PAUSED"].includes(existing!.status) ||
+            !existing!.approvedAt ||
+            !existing!.approvedBy
+          )
+            throw new HttpError(409, "Approve this campaign before starting");
+          if (process.env.LIVE_EMAIL_ENABLED !== "true")
+            throw new HttpError(
+              503,
+              "Live sending is not enabled by the platform administrator",
+            );
+          if (!organization.profileApprovedAt)
+            throw new HttpError(409, "Business profile approval is required");
+          if (existing!.safetyPausedAt)
+            throw new HttpError(
+              409,
+              "Campaign is held for a sending safety review",
+            );
+          const mailbox = existing!.mailboxId
+            ? await transaction.platformMailbox.findUnique({
+                where: { id: existing!.mailboxId },
+              })
+            : null;
+          if (
+            !mailbox ||
+            mailbox.status !== "LIVE_ENABLED" ||
+            !senderMatchesWebsite(mailbox.email, [organization.websiteUrl])
+          )
+            throw new HttpError(
+              409,
+              "Connect and activate this business's domain-matched mailbox",
+            );
+          const subscription =
+            await transaction.platformSubscription.findUnique({
+              where: { workspaceId },
+              include: { plan: true },
+            });
+          if (
+            !subscription ||
+            !["ACTIVE", "TRIAL"].includes(subscription.status) ||
+            (subscription.periodEnd && subscription.periodEnd < new Date())
+          )
+            throw new HttpError(
+              403,
+              "An active subscription or trial is required",
+            );
+          if (subscription.plan.dailyEmails < 1)
+            throw new HttpError(
+              403,
+              "This plan does not include email sending",
+            );
+          const minimum = minimumQualificationScore(
+            organization.qualificationCriteria,
+          );
+          const pending = existing!.recipients.filter((recipient) =>
+            ["QUEUED", "PENDING"].includes(recipient.status),
+          );
+          if (!pending.length)
+            throw new HttpError(409, "No pending recipients remain");
+          for (const recipient of pending) {
+            if (
+              !recipient.approvedAt ||
+              !recipient.approvedBy ||
+              !recipient.subject ||
+              !recipient.body
+            )
+              throw new HttpError(
+                409,
+                "Every recipient needs an approved message",
+              );
+            const blocker = leadSendBlocker(recipient.lead, minimum);
+            if (blocker)
+              throw new HttpError(409, `${recipient.lead.company}: ${blocker}`);
+            if (
+              await transaction.platformMailSuppression.findUnique({
+                where: {
+                  workspaceId_email: {
+                    workspaceId,
+                    email: recipient.lead.email!,
+                  },
+                },
+              })
+            )
+              throw new HttpError(409, "A selected recipient is suppressed");
+          }
+          const result = await transaction.platformCampaign.update({
+            where: { id: existing!.id },
+            data: { status: "RUNNING" },
+          });
+          const job = await enqueueJob(
+            workspaceId,
+            user.id,
+            "SEND_CAMPAIGN",
+            { campaignId: result.id },
+            `campaign:${result.id}:${Date.now()}`,
+            transaction,
+          );
+          await audit(
+            transaction,
+            workspaceId,
+            user.id,
+            "CAMPAIGN_STARTED",
+            result.name,
+            { campaignId: result.id },
+          );
+          return { ...result, job };
+        }
+        throw new HttpError(400, "Unknown campaign action");
       }
-      if (envelope.action !== "read")
-        throw new HttpError(400, "Unknown notification action");
-      const notice = await transaction.platformNotice.findUnique({
-        where: { id: envelope.id || "" },
-      });
-      if (!notice) throw new HttpError(404, "Notification not found");
-      return transaction.platformNotice.update({
-        where: { id: notice.id },
-        data: { readBy: [...new Set([...notice.readBy, user.id])] },
-      });
-    }
-    if (resource === "team") {
-      const values = z
-        .object({
-          email: z.email().optional(),
-          userId: z.string().optional(),
-          role: z.enum(["CLIENT_VIEWER"]).optional(),
-        })
-        .parse(input);
-      const target = values.userId
-        ? await transaction.user.findUnique({
-            where: { id: values.userId },
-            select: { id: true, name: true, email: true },
+      if (resource === "notifications") {
+        if (envelope.action === "read-all") {
+          await transaction.$executeRaw`UPDATE "PlatformNotice" SET "readBy" = array_append("readBy",${user.id}) WHERE "workspaceId"=${workspaceId} AND NOT (${user.id}=ANY("readBy"))`;
+          return { read: true };
+        }
+        if (envelope.action !== "read")
+          throw new HttpError(400, "Unknown notification action");
+        const notice = await transaction.platformNotice.findUnique({
+          where: { id: envelope.id || "" },
+        });
+        if (!notice) throw new HttpError(404, "Notification not found");
+        return transaction.platformNotice.update({
+          where: { id: notice.id },
+          data: { readBy: [...new Set([...notice.readBy, user.id])] },
+        });
+      }
+      if (resource === "team") {
+        const values = z
+          .object({
+            email: z.email().optional(),
+            userId: z.string().optional(),
+            role: z.enum(["CLIENT_VIEWER"]).optional(),
           })
-        : values.email
+          .parse(input);
+        const target = values.userId
           ? await transaction.user.findUnique({
-              where: { email: values.email.toLowerCase().trim() },
+              where: { id: values.userId },
               select: { id: true, name: true, email: true },
             })
-          : null;
-      if (!target)
-        throw new HttpError(
-          404,
-          "This user must register and verify their account first",
-        );
-      const identity = await controlDb.user.findUnique({
-        where: { id: target.id },
-        select: { requiresVerification: true, emailVerifiedAt: true },
-      });
-      if (
-        !identity ||
-        (identity.requiresVerification && !identity.emailVerifiedAt)
-      )
-        throw new HttpError(400, "This user must verify their account first");
-      const membership = await transaction.membership.findUnique({
-        where: { workspaceId_userId: { workspaceId, userId: target.id } },
-      });
-      if (!membership && envelope.action !== "add")
-        throw new HttpError(404, "Team member not found");
-      if (envelope.action === "remove") {
-        await transaction.membership.delete({
-          where: { workspaceId_userId: { workspaceId, userId: target.id } },
-        });
-        await audit(
-          transaction,
-          workspaceId,
-          user.id,
-          "MEMBER_REMOVED",
-          target.email,
-        );
-        return { ok: true };
-      }
-      if (!["add", "update"].includes(envelope.action) || !values.role)
-        throw new HttpError(400, "Choose an action and role");
-      if (!membership) {
-        const subscription = await transaction.platformSubscription.findUnique({
-          where: { workspaceId },
-          include: { plan: true },
+          : values.email
+            ? await transaction.user.findUnique({
+                where: { email: values.email.toLowerCase().trim() },
+                select: { id: true, name: true, email: true },
+              })
+            : null;
+        if (!target)
+          throw new HttpError(
+            404,
+            "This user must register and verify their account first",
+          );
+        const identity = await controlDb.user.findUnique({
+          where: { id: target.id },
+          select: { requiresVerification: true, emailVerifiedAt: true },
         });
         if (
-          !subscription ||
-          (await transaction.membership.count({ where: { workspaceId } })) >=
-            subscription.plan.teamMembers
+          !identity ||
+          (identity.requiresVerification && !identity.emailVerifiedAt)
         )
-          throw new HttpError(
-            403,
-            "This business has reached its team member limit",
+          throw new HttpError(400, "This user must verify their account first");
+        const membership = await transaction.membership.findUnique({
+          where: { workspaceId_userId: { workspaceId, userId: target.id } },
+        });
+        if (!membership && envelope.action !== "add")
+          throw new HttpError(404, "Team member not found");
+        if (envelope.action === "remove") {
+          await transaction.membership.delete({
+            where: { workspaceId_userId: { workspaceId, userId: target.id } },
+          });
+          await audit(
+            transaction,
+            workspaceId,
+            user.id,
+            "MEMBER_REMOVED",
+            target.email,
           );
-      }
-      const result = await transaction.membership.upsert({
-        where: { workspaceId_userId: { workspaceId, userId: target.id } },
-        create: { workspaceId, userId: target.id, role: values.role },
-        update: { role: values.role },
-      });
-      await audit(
-        transaction,
-        workspaceId,
-        user.id,
-        "MEMBER_UPDATED",
-        `${target.email}: ${values.role}`,
-      );
-      return result;
-    }
-    if (resource === "settings") {
-      if (envelope.action === "redact-archived") {
-        z.object({ confirmed: z.literal(true) }).parse(input);
-        const cutoff = new Date(
-          Date.now() - organization.retentionDays * 86400000,
-        );
-        const leads = await transaction.platformLead.findMany({
-          where: { status: "ARCHIVED", updatedAt: { lt: cutoff } },
-          select: { id: true },
-        });
-        const leadIds = leads.map((lead) => lead.id);
-        const messages = await transaction.platformMailMessage.updateMany({
-          where: {
-            leadId: { in: leadIds },
-            createdAt: { lt: cutoff },
-            status: { in: ["ACCEPTED", "RECEIVED"] },
-          },
-          data: {
-            body: "[Content removed by client retention policy]",
-            suggestedReply: null,
-            classificationExplanation: null,
-          },
-        });
-        await transaction.platformLead.updateMany({
-          where: { id: { in: leadIds } },
-          data: {
-            name: "",
-            phone: "",
-            contactRole: "",
-            notes: "",
-            evidence: [],
-            research: Prisma.DbNull,
-            draftSubject: "",
-            draftBody: "",
-            qualificationExplanation: null,
-          },
+          return { ok: true };
+        }
+        if (!["add", "update"].includes(envelope.action) || !values.role)
+          throw new HttpError(400, "Choose an action and role");
+        if (!membership) {
+          const subscription =
+            await transaction.platformSubscription.findUnique({
+              where: { workspaceId },
+              include: { plan: true },
+            });
+          if (
+            !subscription ||
+            (await transaction.membership.count({ where: { workspaceId } })) >=
+              subscription.plan.teamMembers
+          )
+            throw new HttpError(
+              403,
+              "This business has reached its team member limit",
+            );
+        }
+        const result = await transaction.membership.upsert({
+          where: { workspaceId_userId: { workspaceId, userId: target.id } },
+          create: { workspaceId, userId: target.id, role: values.role },
+          update: { role: values.role },
         });
         await audit(
           transaction,
           workspaceId,
           user.id,
-          "RETENTION_APPLIED",
-          `${leads.length} archived lead profiles and ${messages.count} old message bodies redacted; suppression and delivery identifiers retained`,
+          "MEMBER_UPDATED",
+          `${target.email}: ${values.role}`,
         );
-        return {
-          message: `${leads.length} archived profiles and ${messages.count} message bodies redacted. Suppression and delivery identifiers retained.`,
-        };
+        return result;
       }
-      const values = z
-        .object({
-          name: z.string().trim().min(2).max(160).optional(),
-          timezone: z.string().max(100).optional(),
-          retentionDays: z.number().int().min(30).max(3650).optional(),
-        })
-        .parse(input);
-      if (values.timezone) {
-        try {
-          new Intl.DateTimeFormat("en", { timeZone: values.timezone });
-        } catch {
-          throw new HttpError(400, "Invalid timezone");
+      if (resource === "settings") {
+        if (envelope.action === "redact-archived") {
+          z.object({ confirmed: z.literal(true) }).parse(input);
+          const cutoff = new Date(
+            Date.now() - organization.retentionDays * 86400000,
+          );
+          const leads = await transaction.platformLead.findMany({
+            where: { status: "ARCHIVED", updatedAt: { lt: cutoff } },
+            select: { id: true },
+          });
+          const leadIds = leads.map((lead) => lead.id);
+          const messages = await transaction.platformMailMessage.updateMany({
+            where: {
+              leadId: { in: leadIds },
+              createdAt: { lt: cutoff },
+              status: { in: ["ACCEPTED", "RECEIVED"] },
+            },
+            data: {
+              body: "[Content removed by client retention policy]",
+              suggestedReply: null,
+              classificationExplanation: null,
+            },
+          });
+          await transaction.platformLead.updateMany({
+            where: { id: { in: leadIds } },
+            data: {
+              name: "",
+              phone: "",
+              contactRole: "",
+              notes: "",
+              evidence: [],
+              research: Prisma.DbNull,
+              draftSubject: "",
+              draftBody: "",
+              qualificationExplanation: null,
+            },
+          });
+          await audit(
+            transaction,
+            workspaceId,
+            user.id,
+            "RETENTION_APPLIED",
+            `${leads.length} archived lead profiles and ${messages.count} old message bodies redacted; suppression and delivery identifiers retained`,
+          );
+          return {
+            message: `${leads.length} archived profiles and ${messages.count} message bodies redacted. Suppression and delivery identifiers retained.`,
+          };
         }
-      }
-      const { retentionDays, ...workspaceValues } = values;
-      if (retentionDays !== undefined)
-        await transaction.platformOrganization.update({
-          where: { workspaceId },
-          data: { retentionDays },
+        const values = z
+          .object({
+            name: z.string().trim().min(2).max(160).optional(),
+            timezone: z.string().max(100).optional(),
+            retentionDays: z.number().int().min(30).max(3650).optional(),
+          })
+          .parse(input);
+        if (values.timezone) {
+          try {
+            new Intl.DateTimeFormat("en", { timeZone: values.timezone });
+          } catch {
+            throw new HttpError(400, "Invalid timezone");
+          }
+        }
+        const { retentionDays, ...workspaceValues } = values;
+        if (retentionDays !== undefined)
+          await transaction.platformOrganization.update({
+            where: { workspaceId },
+            data: { retentionDays },
+          });
+        const result = await transaction.workspace.update({
+          where: { id: workspaceId },
+          data: workspaceValues,
         });
-      const result = await transaction.workspace.update({
-        where: { id: workspaceId },
-        data: workspaceValues,
+        await audit(
+          transaction,
+          workspaceId,
+          user.id,
+          "SETTINGS_UPDATED",
+          "Business account settings updated",
+        );
+        return result;
+      }
+      throw new HttpError(404, "Unknown platform resource");
+    };
+    const result = await perform();
+    if (operationKey)
+      await transaction.platformOperationReceipt.create({
+        data: {
+          workspaceId,
+          operationKey,
+          scopeHash,
+          encryptedResult: encrypt(JSON.stringify(result)),
+        },
       });
-      await audit(
-        transaction,
-        workspaceId,
-        user.id,
-        "SETTINGS_UPDATED",
-        "Business account settings updated",
-      );
-      return result;
-    }
-    throw new HttpError(404, "Unknown platform resource");
+    return result;
   });
 }
 

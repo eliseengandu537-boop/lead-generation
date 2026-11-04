@@ -3,6 +3,7 @@ import { hash as passwordHash } from "bcryptjs";
 import { z } from "zod";
 import { currentUser, HttpError, rateLimit } from "@/lib/auth";
 import { controlDb } from "@/lib/db";
+import { decrypt, encrypt } from "@/lib/security";
 import { createOrganizationInTransaction } from "./core";
 
 export const clientLoginInput = z
@@ -27,8 +28,20 @@ export const clientLoginInput = z
       });
   });
 
-export async function createClientLogin(input: unknown) {
+export async function createClientLogin(
+  input: unknown,
+  assistantActionId?: string,
+) {
   const admin = await currentUser();
+  return provisionClientLogin(admin, input, assistantActionId);
+}
+
+/** Internal service entry point; HTTP callers must use createClientLogin(). */
+export async function provisionClientLogin(
+  admin: { id: string; agencyAdmin: boolean },
+  input: unknown,
+  assistantActionId?: string,
+) {
   if (!admin.agencyAdmin)
     throw new HttpError(403, "Platform administrator required");
   await rateLimit(`client-login-create:${admin.id}`, 30, 60);
@@ -41,6 +54,39 @@ export async function createClientLogin(input: unknown) {
   ).href;
   const result = await controlDb.$transaction(
     async (tx) => {
+      if (assistantActionId) {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${assistantActionId}))`;
+        const action = await tx.platformAssistantAction.findFirst({
+          where: {
+            id: assistantActionId,
+            type: "create_client",
+            run: { actorId: admin.id },
+          },
+        });
+        if (!action)
+          throw new HttpError(403, "Assistant action is unavailable.");
+        if (
+          JSON.stringify(
+            clientLoginInput.parse(JSON.parse(decrypt(action.encryptedInput))),
+          ) !== JSON.stringify(values)
+        )
+          throw new HttpError(
+            409,
+            "This action identifier was already used for different client details.",
+          );
+        if (action.status === "SUCCEEDED" && action.encryptedResult)
+          return JSON.parse(decrypt(action.encryptedResult)) as {
+            client: { id: string; name: string; email: string };
+            workspace: { id: string; name: string };
+            login: { url: string; email: string; password: string };
+            message: string;
+          };
+        if (action.status !== "EXECUTING")
+          throw new HttpError(
+            409,
+            "This assistant action is no longer executable.",
+          );
+      }
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${values.email}))`;
       if (
         await tx.user.findUnique({
@@ -126,14 +172,27 @@ export async function createClientLogin(input: unknown) {
           detail: `Platform administrator created client portal access for ${client.email}.`,
         },
       });
-      return { client, workspace };
+      const response = {
+        client,
+        workspace,
+        login: { url: loginUrl, email: values.email, password },
+        message:
+          "Client login created. Copy the generated password now and share it privately with the client.",
+      };
+      if (assistantActionId)
+        await tx.platformAssistantAction.update({
+          where: { id: assistantActionId },
+          data: {
+            status: "SUCCEEDED",
+            encryptedResult: encrypt(JSON.stringify(response)),
+            targetBusinessId: workspace.id,
+            completedAt: new Date(),
+            expiresAt: new Date(Date.now() + 30 * 60000),
+          },
+        });
+      return response;
     },
     { maxWait: 10000, timeout: 30000 },
   );
-  return {
-    ...result,
-    login: { url: loginUrl, email: values.email, password },
-    message:
-      "Client login created. Copy the generated password now and share it privately with the client.",
-  };
+  return result;
 }
