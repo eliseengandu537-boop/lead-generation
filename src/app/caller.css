@@ -102,6 +102,9 @@
 .caller-content > .section-heading {
   margin: 0 0 6px;
 }
+.caller-content > * {
+  min-width: 0;
+}
 .caller-content .surface,
 .call-centre > .surface {
   padding: 27px;
@@ -148,6 +151,11 @@
 .caller-toolbar input[type="search"] {
   flex: 1;
   min-width: 200px;
+}
+.caller-toolbar select {
+  width: auto;
+  max-width: 100%;
+  min-width: 180px;
 }
 .caller-lead-list {
   display: grid;

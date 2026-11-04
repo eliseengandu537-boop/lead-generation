@@ -911,7 +911,7 @@ export default function AdminScreen() {
           </div>
         </header>
         <main className="page-content admin-content" id="main-content">
-          {tab !== "assistant" && (
+          {!["assistant", "call-centre"].includes(tab) && (
             <>
               <SectionHeading
                 eyebrow="THE PLATFORM PERSPECTIVE"
