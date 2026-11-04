@@ -209,6 +209,17 @@ export async function discover(
       const lead = await tx.platformLead.create({
         data: {
           workspaceId,
+          createdById: actorId,
+          ownerId:
+            actorId &&
+            (
+              await tx.user.findUnique({
+                where: { id: actorId },
+                select: { staffRole: true },
+              })
+            )?.staffRole === "CALLER"
+              ? actorId
+              : null,
           company: result.company.slice(0, 200),
           website,
           industry: input.industry,

@@ -11,6 +11,8 @@ export function CampaignComposer({
   sending,
   act,
   close,
+  endpoint,
+  setupPath,
 }: {
   organization: Organization;
   accounts: RecordValue[];
@@ -18,6 +20,8 @@ export function CampaignComposer({
   sending: RecordValue;
   act: (resource: string, input: RecordValue) => Promise<RecordValue>;
   close: () => void;
+  endpoint?: string;
+  setupPath?: string;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const requestId = useRef(crypto.randomUUID());
@@ -41,6 +45,7 @@ export function CampaignComposer({
     dialog.current?.showModal();
   }, []);
   const link = (view: string) =>
+    setupPath ||
     `/?client=${encodeURIComponent(organization.workspaceId)}&view=${view}`;
   const payload = {
     name,
@@ -63,7 +68,7 @@ export function CampaignComposer({
     try {
       if (!preview) {
         const result = await api(
-          `/api/platform/${organization.workspaceId}/campaigns`,
+          endpoint || `/api/platform/${organization.workspaceId}/campaigns`,
           "POST",
           { ...payload, action: "preview" },
         );

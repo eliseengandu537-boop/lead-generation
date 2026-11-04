@@ -554,10 +554,24 @@ export async function mutateAuthorizedResource(
   operation?: { idempotencyKey?: string; campaignReviewHash?: string },
 ) {
   const workspaceId = access.organization.workspaceId;
+  const callerOperator =
+    resource === "campaigns" &&
+    access.user.staffRole === "CALLER" &&
+    access.role === "CALLER" &&
+    Boolean(
+      (
+        await controlDb.membership.findUnique({
+          where: {
+            workspaceId_userId: { workspaceId, userId: access.user.id },
+          },
+        })
+      )?.callerCanSend,
+    );
   if (
-    !access.user.agencyAdmin ||
-    access.role !== "AGENCY_ADMIN" ||
+    (!access.user.agencyAdmin && !callerOperator) ||
+    (access.role !== "AGENCY_ADMIN" && !callerOperator) ||
     access.workspace.id !== workspaceId ||
+    access.workspace.status !== "ACTIVE" ||
     databaseContext()?.workspaceId !== workspaceId
   )
     throw new HttpError(
@@ -880,6 +894,25 @@ export async function mutateAuthorizedResource(
         return result;
       }
       if (resource === "campaigns") {
+        if (callerOperator) {
+          const selected = z
+            .object({ leadIds: z.array(z.string()).optional() })
+            .parse(input).leadIds;
+          if (
+            selected &&
+            (await transaction.platformLead.count({
+              where: {
+                id: { in: selected },
+                OR: [{ ownerId: user.id }, { ownerId: null }],
+                status: { not: "ARCHIVED" },
+              },
+            })) !== selected.length
+          )
+            throw new HttpError(
+              403,
+              "Choose leads assigned to you or available in this business's queue.",
+            );
+        }
         if (
           envelope.action === "preview" ||
           envelope.action === "create-and-send"
@@ -938,6 +971,11 @@ export async function mutateAuthorizedResource(
             : null;
         if (envelope.action !== "create" && !existing)
           throw new HttpError(404, "Campaign not found");
+        if (callerOperator && existing && existing.createdById !== user.id)
+          throw new HttpError(
+            403,
+            "Only the creator or an administrator can change this email campaign.",
+          );
         if (operation?.campaignReviewHash && existing) {
           const currentOrganization =
             await transaction.platformOrganization.findUniqueOrThrow({
@@ -1041,7 +1079,12 @@ export async function mutateAuthorizedResource(
                 data,
               })
             : await transaction.platformCampaign.create({
-                data: { ...data, name: values.name!, workspaceId },
+                data: {
+                  ...data,
+                  name: values.name!,
+                  workspaceId,
+                  createdById: user.id,
+                },
               });
           if (leadIds) {
             await transaction.platformCampaignRecipient.deleteMany({
@@ -1212,6 +1255,15 @@ export async function mutateAuthorizedResource(
           if (!pending.length)
             throw new HttpError(409, "No pending recipients remain");
           for (const recipient of pending) {
+            if (
+              callerOperator &&
+              recipient.lead.ownerId &&
+              recipient.lead.ownerId !== user.id
+            )
+              throw new HttpError(
+                409,
+                "A recipient is now assigned to another caller. Update the campaign recipients.",
+              );
             if (
               !recipient.approvedAt ||
               !recipient.approvedBy ||
@@ -1473,7 +1525,12 @@ export async function adminRead() {
           status: true,
           _count: { select: { memberships: true } },
           memberships: {
-            where: { user: { agencyAdmin: false } },
+            where: {
+              user: {
+                agencyAdmin: false,
+                OR: [{ staffRole: null }, { staffRole: { not: "CALLER" } }],
+              },
+            },
             select: { user: { select: { id: true, name: true, email: true } } },
             take: 20,
           },

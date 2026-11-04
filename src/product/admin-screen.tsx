@@ -14,7 +14,7 @@ import {
   Globe2,
   Inbox,
   KeyRound,
-  Layers3,
+  Phone,
   LayoutDashboard,
   Menu,
   Plus,
@@ -50,13 +50,14 @@ import { ThemeToggle } from "./theme";
 import { MetricNumber, TrendChart } from "./charts";
 import { ClientLoginDialog } from "./client-login-dialog";
 import AssistantScreen from "./assistant-screen";
+import CallCentre from "./call-centre";
 
 const navigation = [
   {
     id: "assistant",
     label: "AI Assistant",
     icon: Bot,
-    detail: "Ask Claude to work with your real clients and campaigns.",
+    detail: "Ask your OpenAI assistant to work with your clients and outreach.",
   },
   {
     id: "command",
@@ -89,10 +90,10 @@ const navigation = [
     detail: "Understand the health of every conversation.",
   },
   {
-    id: "campaigns",
-    label: "Campaigns",
-    icon: Layers3,
-    detail: "Campaign momentum across your platform.",
+    id: "call-centre",
+    label: "Call Centre",
+    icon: Phone,
+    detail: "Caller access, conversations, qualified prospects and bookings.",
   },
   {
     id: "inbox",
@@ -257,7 +258,7 @@ export default function AdminScreen() {
     return result;
   }
   function navigate(id: string) {
-    setTab(id);
+    setTab(id === "campaigns" ? "outreach" : id);
     setMobile(false);
     setSearch("");
     setStatus("ALL");
@@ -1006,6 +1007,7 @@ export default function AdminScreen() {
                   onCreateClient={() => setClientLogin({})}
                 />
               )}
+              {tab === "call-centre" && <CallCentre />}
               {tab === "command" && (
                 <>
                   <div className="admin-intro">
@@ -1367,7 +1369,7 @@ export default function AdminScreen() {
                   </div>
                 </>
               )}
-              {tab === "campaigns" && (
+              {tab === "outreach" && (
                 <>
                   {workspaceTools("campaigns", "Create and send campaign")}
                   {metrics([

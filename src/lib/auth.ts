@@ -17,7 +17,11 @@ export const authOptions: NextAuthOptions = {
         const email = credentials.email.toLowerCase().trim();
         await rateLimit("login:" + hash(email), 15);
         const user = await controlDb.user.findUnique({ where: { email } });
-        if (!user || !(await compare(credentials.password, user.passwordHash)))
+        if (
+          !user ||
+          user.disabledAt ||
+          !(await compare(credentials.password, user.passwordHash))
+        )
           return null;
         if (user.requiresVerification && !user.emailVerifiedAt) return null;
         return { id: user.id, name: user.name, email: user.email };
@@ -64,11 +68,29 @@ export async function currentUser() {
   const user = id
     ? await controlDb.user.findUnique({
         where: { id },
-        select: { id: true, name: true, email: true, agencyAdmin: true },
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          agencyAdmin: true,
+          staffRole: true,
+          disabledAt: true,
+        },
       })
     : null;
   if (!user) throw new HttpError(401, "Please sign in");
-  return user;
+  if (user.disabledAt)
+    throw new HttpError(
+      403,
+      "This account is disabled. Contact your administrator.",
+    );
+  return user as {
+    id: string;
+    name: string;
+    email: string;
+    agencyAdmin: boolean;
+    staffRole?: string | null;
+  };
 }
 export async function tenant(workspaceId: string, manage = false) {
   const user = await currentUser();

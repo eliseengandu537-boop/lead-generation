@@ -1,0 +1,349 @@
+.caller-app {
+  display: flex;
+  min-height: 100dvh;
+  background: var(--paper);
+  color: var(--ink);
+}
+.caller-sidebar {
+  position: fixed;
+  inset: 0 auto 0 0;
+  width: 244px;
+  background: var(--surface);
+  border-right: 1px solid var(--line);
+  padding: 30px 18px;
+  display: flex;
+  flex-direction: column;
+  z-index: 60;
+}
+.caller-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 22px;
+  font-weight: 850;
+  letter-spacing: -1px;
+  color: var(--ink-strong);
+  text-decoration: none;
+  margin-bottom: 46px;
+}
+.caller-sidebar .eyebrow {
+  margin: 0 12px 20px;
+}
+.caller-sidebar nav {
+  display: grid;
+  gap: 6px;
+}
+.caller-sidebar nav button {
+  border: 0;
+  background: transparent;
+  text-align: left;
+  justify-content: flex-start;
+  padding: 14px;
+  gap: 12px;
+  color: var(--muted);
+}
+.caller-sidebar nav button.active {
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 700;
+}
+.caller-sidebar-bottom {
+  margin-top: auto;
+  display: grid;
+  gap: 12px;
+  padding-top: 36px;
+  overflow-wrap: anywhere;
+}
+.caller-sidebar-bottom p {
+  font-weight: 700;
+  margin: 0;
+}
+.caller-sidebar-bottom small {
+  font-size: 11px;
+  color: var(--muted);
+}
+.caller-main {
+  width: calc(100% - 244px);
+  margin-left: 244px;
+  min-width: 0;
+}
+.caller-topbar {
+  min-height: 88px;
+  padding: 18px 36px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+}
+.caller-topbar > label {
+  display: grid;
+  gap: 5px;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--muted);
+  min-width: 0;
+}
+.caller-topbar select {
+  width: min(400px, 100%);
+  font-size: 14px;
+  text-transform: none;
+  letter-spacing: 0;
+}
+.caller-content {
+  padding: 40px;
+  max-width: 1600px;
+  margin: auto;
+  display: grid;
+  gap: 25px;
+}
+.caller-content > .section-heading {
+  margin: 0 0 6px;
+}
+.caller-content .surface,
+.call-centre > .surface {
+  padding: 27px;
+  min-width: 0;
+}
+.caller-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 9px;
+}
+.caller-actions button,
+.caller-actions .button {
+  display: inline-flex;
+  gap: 7px;
+  align-items: center;
+  justify-content: center;
+}
+.caller-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 16px;
+}
+.caller-metrics .surface {
+  padding: 22px;
+  display: grid;
+  gap: 18px;
+}
+.caller-metrics span {
+  font-size: 12px;
+  color: var(--muted);
+}
+.caller-metrics strong {
+  font-size: 32px;
+  letter-spacing: -1px;
+  color: var(--ink-strong);
+}
+.caller-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.caller-toolbar input[type="search"] {
+  flex: 1;
+  min-width: 200px;
+}
+.caller-lead-list {
+  display: grid;
+  gap: 14px;
+}
+.caller-lead {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(250px, 43%);
+  gap: 24px;
+  align-items: center;
+}
+.caller-lead h3,
+.caller-booking h3 {
+  margin: 0 0 10px;
+  font-size: 16px;
+}
+.caller-lead p,
+.caller-booking p {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.8;
+  overflow-wrap: anywhere;
+}
+.caller-lead small {
+  display: block;
+  margin-top: 10px;
+  color: var(--muted);
+  font-size: 11px;
+}
+.caller-active-call {
+  border: 1px solid var(--accent);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+}
+.caller-active-call p {
+  color: var(--muted);
+  font-size: 12px;
+  max-width: 600px;
+  line-height: 1.8;
+}
+.caller-booking {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 24px 0;
+  border-bottom: 1px solid var(--line);
+}
+.caller-booking:last-child {
+  border-bottom: 0;
+}
+.caller-history {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 15px;
+  padding: 20px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 12px;
+}
+.caller-content table,
+.call-centre table {
+  width: 100%;
+  font-size: 12px;
+}
+.caller-content td,
+.call-centre td {
+  vertical-align: top;
+}
+.caller-content td small,
+.call-centre td small {
+  display: block;
+  margin-top: 7px;
+  line-height: 1.65;
+  color: var(--muted);
+}
+.caller-content .alert {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  line-height: 1.8;
+}
+.caller-form {
+  max-width: 720px;
+  display: grid;
+  gap: 20px;
+}
+.caller-form label {
+  display: grid;
+  gap: 9px;
+  font-size: 12px;
+}
+.caller-form button {
+  justify-self: start;
+}
+.caller-content input,
+.caller-content select,
+.caller-form input {
+  padding: 12px;
+}
+.caller-menu {
+  display: none;
+}
+.caller-url {
+  overflow-wrap: anywhere;
+  max-width: 650px;
+}
+.caller-notes {
+  max-width: 260px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.call-centre {
+  display: grid;
+  gap: 26px;
+}
+.caller-shade {
+  display: none;
+}
+@media (max-width: 1100px) {
+  .caller-content {
+    padding: 28px;
+  }
+  .caller-lead {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+  .caller-active-call {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
+@media (max-width: 760px) {
+  .caller-sidebar {
+    transform: translateX(-100%);
+    transition: transform 0.2s;
+    width: 270px;
+  }
+  .caller-sidebar.is-open {
+    transform: translateX(0);
+  }
+  .caller-main {
+    margin-left: 0;
+    width: 100%;
+  }
+  .caller-menu {
+    display: inline-flex;
+  }
+  .caller-topbar {
+    padding: 14px 16px;
+    gap: 9px;
+  }
+  .caller-topbar > label {
+    flex: 1;
+  }
+  .caller-topbar select {
+    max-width: 100%;
+  }
+  .caller-content {
+    padding: 26px 16px;
+    gap: 20px;
+  }
+  .caller-content .surface,
+  .call-centre > .surface {
+    padding: 20px;
+  }
+  .caller-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+  }
+  .caller-metrics .surface {
+    padding: 17px;
+  }
+  .caller-metrics strong {
+    font-size: 27px;
+  }
+  .caller-booking {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .caller-shade {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: #0007;
+    border: 0;
+    border-radius: 0;
+    z-index: 50;
+  }
+  .caller-content .section-heading h2 {
+    font-size: 27px;
+  }
+  .caller-content .caller-toolbar button {
+    width: 100%;
+  }
+}

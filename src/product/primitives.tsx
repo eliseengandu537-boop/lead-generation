@@ -140,6 +140,8 @@ export function ActionDialog({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const container = useRef<HTMLDivElement>(null);
+  const closeRef = useRef(close);
+  closeRef.current = close;
   useEffect(() => {
     const previous = document.activeElement as HTMLElement | null;
     const first = container.current?.querySelector<HTMLElement>(
@@ -147,7 +149,7 @@ export function ActionDialog({
     );
     first?.focus();
     function key(event: KeyboardEvent) {
-      if (event.key === "Escape" && !busy) close();
+      if (event.key === "Escape" && !busy) closeRef.current();
       if (event.key === "Tab") {
         const focusable = Array.from(
           container.current?.querySelectorAll<HTMLElement>(
@@ -174,7 +176,7 @@ export function ActionDialog({
       document.body.style.overflow = previousOverflow;
       previous?.focus();
     };
-  }, [busy, close]);
+  }, [busy]);
   function update(name: string, value: unknown) {
     setValues((current) => ({ ...current, [name]: value }));
   }
@@ -325,6 +327,7 @@ export function ActionDialog({
                   {field.type === "checkbox" && (
                     <input
                       type="checkbox"
+                      aria-label={field.label}
                       checked={!!values[field.name]}
                       required={field.required}
                       onChange={(event) =>
@@ -340,6 +343,7 @@ export function ActionDialog({
                   </span>
                   {field.type === "textarea" ? (
                     <textarea
+                      aria-label={field.label}
                       rows={5}
                       required={field.required}
                       placeholder={field.placeholder}
@@ -350,6 +354,7 @@ export function ActionDialog({
                     />
                   ) : field.type === "select" ? (
                     <select
+                      aria-label={field.label}
                       required={field.required}
                       value={text(values[field.name], "")}
                       onChange={(event) =>
@@ -366,6 +371,7 @@ export function ActionDialog({
                   ) : field.type !== "checkbox" ? (
                     <input
                       type={field.type || "text"}
+                      aria-label={field.label}
                       required={field.required}
                       min={field.min}
                       max={field.max}
@@ -423,7 +429,7 @@ export function ActionDialog({
             <button type="button" disabled={busy} onClick={close}>
               Cancel
             </button>
-            <button className="primary" disabled={busy}>
+            <button type="submit" className="primary" disabled={busy}>
               {busy ? <LoaderCircle className="spin" size={16} /> : null}
               {busy ? "Working…" : dialog.submitLabel || "Save changes"}
               <ArrowRight size={16} />

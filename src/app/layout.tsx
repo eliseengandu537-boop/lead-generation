@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import "./caller.css";
 import { ThemeProvider } from "@/product/theme";
 export const metadata: Metadata = {
   title: "Concrete — Business Intelligence & Outreach",

@@ -41,7 +41,7 @@ const navigation = [
   { id: "overview", label: "Overview", icon: LayoutDashboard },
   { id: "discovery", label: "AI Lead Finder", icon: Radar },
   { id: "leads", label: "My Leads", icon: Users },
-  { id: "campaigns", label: "Campaigns", icon: Send },
+  { id: "campaigns", label: "Email outreach", icon: Send },
   { id: "inbox", label: "Email Inbox", icon: Inbox },
   { id: "templates", label: "Email Templates", icon: FileText },
   { id: "reports", label: "Analytics", icon: ChartNoAxesCombined },

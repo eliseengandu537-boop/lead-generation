@@ -9,6 +9,7 @@ export default async function HomePage({
 }) {
   try {
     const user = await currentUser();
+    if (user.staffRole === "CALLER" && !user.agencyAdmin) redirect("/caller");
     if (user.agencyAdmin && !(await searchParams).client) redirect("/admin");
     if (!user.agencyAdmin) return <ClientPortal />;
   } catch (error) {
