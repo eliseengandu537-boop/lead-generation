@@ -1,5 +1,13 @@
 # Verification
 
+## OpenAI chat, client editing and create-and-send — November 4, 2026
+
+All 35 unit tests, lint, type checking and the production build passed. OpenAI coverage verifies function-call/result mapping, bearer-only credentials, disabled provider storage, serialized tools, sanitized failures without retries, malformed/incomplete response rejection, selected-client isolation and older conversation compatibility. The saved real key authenticates but the generation check returned HTTP 429 `credit_balance_exhausted`; successful live AI generation is not claimed.
+
+Five assistant/database integration groups and twelve platform regression groups passed against isolated local fixtures. These include atomic create-and-send, personalised message review, stale-review rejection, concurrent launch replay, cross-business rejection and no unwanted drafts/jobs when setup is incomplete. Their provider calls are mocked or absent, and no real email is sent.
+
+Local browser checks passed typing/editing without an AI connection, preserved commands when opening settings, two independent businesses plus All clients, generic prompts, persistent client settings/website targeting/lead edits, personalised campaign and follow-up previews, explicit sending blockers, returning to editing, mobile layout and Escape dismissal. There were no browser runtime errors. Results are under `artifacts/concrete/dashboard/local`; local fixtures were removed.
+
 ## Claude administrator assistant — November 4, 2026
 
 Unit coverage adds provider authentication boundaries, safe provider/billing failures without automatic retry, strict tool schemas, secret rejection, user-supplied client addresses, and content-bound sending review fingerprints. Four local database/HTTP integration groups verify atomic client provisioning receipts, repeated-command protection, conflicting identifiers, scoped campaign receipts, cross-business rejection, control-only assistant tables, changed-review rejection, the disabled sending gate, private credential expiry, owner-only action reads and origin checks. These checks make no Claude requests and send no emails. Actual Claude generation requires the administrator's API key and credit; the feature remains disconnected until configured.

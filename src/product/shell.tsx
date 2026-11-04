@@ -68,6 +68,10 @@ export default function ConcreteApp() {
   const [revision, setRevision] = useState(0);
   const refresh = useCallback(() => setRevision((current) => current + 1), []);
   useEffect(() => {
+    const requested = new URLSearchParams(window.location.search).get("view");
+    if (navigation.some((entry) => entry.id === requested)) setTab(requested!);
+  }, []);
+  useEffect(() => {
     if (!["overview", "notifications"].includes(tab) || dialog) return;
     const timer = window.setInterval(() => {
       if (document.visibilityState === "visible") refresh();
@@ -142,6 +146,10 @@ export default function ConcreteApp() {
   );
   const active = navigation.find((entry) => entry.id === tab)!;
   function navigate(next: string) {
+    const address = new URL(window.location.href);
+    address.searchParams.set("client", organizationId);
+    address.searchParams.set("view", next);
+    window.history.replaceState(null, "", address);
     setTab(next);
     setMobile(false);
     setNotice("");

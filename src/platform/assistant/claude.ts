@@ -34,7 +34,7 @@ export function validateUserMessage(value: string) {
   )
     throw new HttpError(
       400,
-      "Keep passwords and API keys out of chat. Use the Claude connection settings for your API key.",
+      "Keep passwords and API keys out of chat. Use the private AI connection settings for your API key.",
     );
   return message;
 }

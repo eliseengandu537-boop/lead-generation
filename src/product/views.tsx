@@ -53,6 +53,7 @@ import {
 import { OverviewView } from "./overview-view";
 import { AutomationView } from "./automation-view";
 import { MetricNumber, TrendChart } from "./charts";
+import { CampaignComposer } from "./campaign-composer";
 
 export type ViewProps = {
   tab: string;
@@ -966,6 +967,7 @@ function Campaigns({
   organization,
 }: ViewProps) {
   const [search, setSearch] = useState("");
+  const [composing, setComposing] = useState(false);
   const [selected, setSelected] = useState<RecordValue | null>(null);
   const items = rows(data.items);
   const [accounts, setAccounts] = useState<RecordValue[]>([]);
@@ -1005,6 +1007,10 @@ function Campaigns({
     return () => controller.abort();
   }, [organization.workspaceId]);
   function edit(campaign?: RecordValue) {
+    if (!campaign) {
+      setComposing(true);
+      return;
+    }
     openDialog({
       title: campaign ? "Refine your campaign" : "Start a new conversation",
       detail:
@@ -1152,11 +1158,21 @@ function Campaigns({
           canManage && (
             <button className="primary" onClick={() => edit()}>
               <Plus size={17} />
-              Create campaign
+              Create and send
             </button>
           )
         }
       />
+      {composing && (
+        <CampaignComposer
+          organization={organization}
+          accounts={accounts}
+          leads={leads}
+          sending={object(data.sending)}
+          act={act}
+          close={() => setComposing(false)}
+        />
+      )}
       {connectionError && (
         <div className="alert error" role="alert">
           {connectionError}
@@ -1343,7 +1359,7 @@ function Campaigns({
             action={
               canManage && (
                 <button className="primary" onClick={() => edit()}>
-                  Build a campaign
+                  Create and send campaign
                   <Plus size={16} />
                 </button>
               )

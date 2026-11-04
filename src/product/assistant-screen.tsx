@@ -1,5 +1,6 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import {
   Bot,
   Check,
@@ -18,7 +19,23 @@ import { api, date, label, object, rows, text, type RecordValue } from "./data";
 import { Badge } from "./primitives";
 
 const endpoint = "/api/platform/admin/assistant";
-export default function AssistantScreen() {
+export default function AssistantScreen({
+  clients,
+  onCreateClient,
+}: {
+  clients: RecordValue[];
+  onCreateClient: () => void;
+}) {
+  const [clientId, setClientId] = useState("");
+  const clientSelect = useRef<HTMLSelectElement>(null);
+  const commandInput = useRef<HTMLTextAreaElement>(null);
+  const availableClients = clients.filter(
+    (client) =>
+      client.status === "ACTIVE" && client.onboardingStatus !== "DEMO",
+  );
+  const selectedClient = availableClients.find(
+    (client) => client.workspaceId === clientId,
+  );
   const [configuration, setConfiguration] = useState<RecordValue>({});
   const [conversations, setConversations] = useState<RecordValue[]>([]);
   const [conversationId, setConversationId] = useState("");
@@ -30,7 +47,7 @@ export default function AssistantScreen() {
   const [notice, setNotice] = useState("");
   const [settings, setSettings] = useState(false);
   const [apiKey, setApiKey] = useState("");
-  const [model, setModel] = useState("claude-sonnet-5-5");
+  const [model, setModel] = useState("gpt-4.1-mini");
   const [detail, setDetail] = useState<{
     kind: "credentials" | "review";
     action: RecordValue;
@@ -41,11 +58,23 @@ export default function AssistantScreen() {
   const [copied, setCopied] = useState(false);
   const modal = useRef<HTMLDialogElement>(null);
   const bottom = useRef<HTMLDivElement>(null);
+  const connectionForm = useRef<HTMLFormElement>(null);
+  const keyInput = useRef<HTMLInputElement>(null);
+  function showConnection() {
+    setSettings(true);
+    requestAnimationFrame(() => {
+      connectionForm.current?.scrollIntoView({
+        block: "center",
+        behavior: "smooth",
+      });
+      keyInput.current?.focus({ preventScroll: true });
+    });
+  }
   const loadDirectory = useCallback(async () => {
     const result = await api(endpoint);
     setConfiguration(object(result.configuration));
     setConversations(rows(result.conversations));
-    setModel(text(object(result.configuration).model, "claude-sonnet-5-5"));
+    setModel(text(object(result.configuration).model, "gpt-4.1-mini"));
     return result;
   }, []);
   const loadConversation = useCallback(async (id: string) => {
@@ -104,7 +133,12 @@ export default function AssistantScreen() {
   }
   async function submit(event: React.FormEvent) {
     event.preventDefault();
-    if (!message.trim() || busy || working) return;
+    if (busy || working) return;
+    if (!connected) {
+      showConnection();
+      return;
+    }
+    if (!message.trim()) return;
     setBusy(true);
     setError("");
     setNotice("");
@@ -113,13 +147,14 @@ export default function AssistantScreen() {
       const id = conversationId || (await newConversation());
       activeId = id;
       const command = message.trim();
-      setMessage("");
       await api(endpoint, "POST", {
         action: "message",
         conversationId: id,
         requestId: crypto.randomUUID(),
         message: command,
+        ...(selectedClient ? { workspaceId: selectedClient.workspaceId } : {}),
       });
+      setMessage("");
       await Promise.all([loadConversation(id), loadDirectory()]);
     } catch (cause) {
       setError(
@@ -137,14 +172,18 @@ export default function AssistantScreen() {
     setBusy(true);
     setError("");
     try {
-      await api(endpoint, "POST", { action: "configure", apiKey, model });
+      const result = await api(endpoint, "POST", {
+        action: "configure",
+        apiKey,
+        model,
+      });
       setApiKey("");
       setSettings(false);
-      setNotice("Claude is connected and ready.");
+      setNotice(text(result.message));
       await loadDirectory();
     } catch (cause) {
       setError(
-        cause instanceof Error ? cause.message : "Claude could not connect.",
+        cause instanceof Error ? cause.message : "OpenAI could not connect.",
       );
     } finally {
       setApiKey("");
@@ -217,6 +256,7 @@ export default function AssistantScreen() {
     }
   }
   const connected = Boolean(configuration.connected);
+  const ready = Boolean(configuration.ready);
   const review = object(detail?.data.review);
   const blockers = Array.isArray(review.blockers)
     ? review.blockers.map(String)
@@ -227,12 +267,10 @@ export default function AssistantScreen() {
       <div className="assistant-heading">
         <div>
           <p className="eyebrow">CONCRETE AI ASSISTANT</p>
-          <h2>
-            Your operations.
-            <br />
-            <span>One conversation.</span>
-          </h2>
-          <p>Ask Claude to work with your real clients, leads and campaigns.</p>
+          <h2>Your AI workspace.</h2>
+          <p>
+            Chat naturally. Manage clients, leads and campaigns from one place.
+          </p>
         </div>
         <button
           className="button secondary"
@@ -242,7 +280,7 @@ export default function AssistantScreen() {
           }}
         >
           <KeyRound size={15} />
-          {connected ? "Claude connection" : "Connect Claude"}
+          AI settings
         </button>
       </div>
       {error && (
@@ -255,43 +293,53 @@ export default function AssistantScreen() {
           {notice}
         </div>
       )}
-      {(settings || !connected) && (
-        <form className="panel assistant-connection" onSubmit={connect}>
+      {connected && !ready && (
+        <div className="alert info" role="status">
+          Your OpenAI key is saved, but API credit is unavailable. Add credit to
+          your OpenAI API account or update the key in AI settings. Client and
+          campaign forms are available below.
+        </div>
+      )}
+      {settings && (
+        <form
+          ref={connectionForm}
+          className="panel assistant-connection"
+          onSubmit={connect}
+        >
           <div>
             <span className="assistant-icon">
               <Bot size={22} />
             </span>
             <h3>
               {connected
-                ? "Update Claude connection"
-                : "Connect your Claude API account"}
+                ? "Update OpenAI connection"
+                : "Connect your OpenAI API account"}
             </h3>
             <p>
-              The key stays encrypted on the server. It is never sent to Claude
-              as chat content.
+              The key stays encrypted on the server and is never included in
+              chat messages.
             </p>
           </div>
           <label>
-            Anthropic API key
+            OpenAI API key
             <input
+              ref={keyInput}
               type="password"
               value={apiKey}
               onChange={(event) => setApiKey(event.target.value)}
               autoComplete="off"
               required
               minLength={20}
-              placeholder="Your private Anthropic API key"
+              placeholder="Your private OpenAI API key"
             />
           </label>
           <label>
-            Claude model
+            OpenAI model
             <select
               value={model}
               onChange={(event) => setModel(event.target.value)}
             >
-              <option value="claude-sonnet-5-5">Claude Sonnet 5.5</option>
-              <option value="claude-haiku-5-5">Claude Haiku 5.5</option>
-              <option value="claude-opus-5-5">Claude Opus 5.5</option>
+              <option value="gpt-4.1-mini">GPT-4.1 mini</option>
             </select>
           </label>
           <button className="button" disabled={busy || working}>
@@ -303,9 +351,12 @@ export default function AssistantScreen() {
             Test and connect
           </button>
           <small>
-            This makes a small API connection test using your Anthropic API
-            credit.
+            This makes a small API connection test using your OpenAI API credit.
+            You can close AI settings and keep writing your message.
           </small>
+          <button type="button" onClick={() => setSettings(false)}>
+            Close AI settings
+          </button>
         </form>
       )}
       <div className="assistant-layout">
@@ -318,7 +369,15 @@ export default function AssistantScreen() {
             }}
           >
             <Plus size={15} />
-            New conversation
+            New chat
+          </button>
+          <button
+            className="button secondary"
+            disabled={waiting}
+            onClick={onCreateClient}
+          >
+            <Plus size={15} />
+            Add client
           </button>
           <p className="eyebrow">YOUR CONVERSATIONS</p>
           <div className="assistant-conversations">
@@ -342,15 +401,15 @@ export default function AssistantScreen() {
             <ShieldCheck size={17} />
             <b>You stay in control</b>
             <p>
-              Client logins and draft campaigns are created when you ask. You
-              review emails and recipients before launching a campaign.
+              Add clients, manage leads and prepare outreach for every business.
+              Review the emails and recipients before sending.
             </p>
             <small>Only platform administrators can use this assistant.</small>
           </div>
         </aside>
         <section
           className="panel assistant-chat"
-          aria-label="Claude operations assistant"
+          aria-label="OpenAI operations assistant"
         >
           <header>
             <div>
@@ -359,16 +418,57 @@ export default function AssistantScreen() {
               </span>
               <div>
                 <b>Concrete Assistant</b>
-                <small>Powered by Claude</small>
+                <small>Powered by OpenAI</small>
               </div>
             </div>
             <span
-              className={`assistant-connection-state ${connected ? "connected" : ""}`}
+              className={`assistant-connection-state ${ready ? "connected" : ""}`}
             >
               <i />
-              {connected ? "Connected" : "Connection needed"}
+              {ready
+                ? "Ready"
+                : connected
+                  ? "API credit needed"
+                  : "Connect OpenAI"}
             </span>
           </header>
+          <div className="assistant-client-toolbar">
+            <label>
+              Working with
+              <select
+                ref={clientSelect}
+                aria-label="Choose assistant client"
+                value={selectedClient ? clientId : ""}
+                disabled={waiting}
+                onChange={(event) => setClientId(event.target.value)}
+              >
+                <option value="">All clients</option>
+                {availableClients.map((client) => (
+                  <option
+                    key={text(client.workspaceId)}
+                    value={text(client.workspaceId)}
+                  >
+                    {text(client.name)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {selectedClient ? (
+              <Link
+                className="button secondary"
+                href={`/?client=${encodeURIComponent(clientId)}&view=campaigns`}
+              >
+                Create and send campaign
+              </Link>
+            ) : (
+              <button
+                type="button"
+                onClick={() => clientSelect.current?.focus()}
+              >
+                Choose a client for a campaign
+              </button>
+            )}
+          </div>
           <div
             className="assistant-messages"
             aria-live="polite"
@@ -379,21 +479,28 @@ export default function AssistantScreen() {
                 <span className="assistant-icon">
                   <Bot size={28} />
                 </span>
-                <h3>What would you like done?</h3>
+                <h3>How can I help?</h3>
                 <p>
-                  Work with your actual business records. Ask for an action or
-                  check what is ready.
+                  Add a client, plan outreach or check progress. Choose a client
+                  above when you want to work on one business.
                 </p>
                 <div className="assistant-prompts">
                   {[
-                    "Show my clients and check what DCB Spares needs before outreach.",
-                    "Help me add a new client and generate their login.",
-                    "Help me draft an outreach campaign for DCB Spares.",
+                    selectedClient
+                      ? "Check this client's leads, campaigns and what needs attention."
+                      : "Show my clients and what needs attention.",
+                    "Help me add a new client and create their login.",
+                    selectedClient
+                      ? "Help me create an outreach campaign for this client."
+                      : "Help me choose a client and create an outreach campaign.",
                   ].map((prompt) => (
                     <button
                       key={prompt}
                       disabled={waiting}
-                      onClick={() => setMessage(prompt)}
+                      onClick={() => {
+                        setMessage(prompt);
+                        commandInput.current?.focus();
+                      }}
                     >
                       {prompt}
                       <span>↗</span>
@@ -406,6 +513,14 @@ export default function AssistantScreen() {
               <div className="assistant-turn" key={text(run.id)}>
                 <div className="assistant-message human">
                   <small>You</small>
+                  <small>
+                    {text(
+                      availableClients.find(
+                        (client) => client.workspaceId === run.workspaceId,
+                      )?.name,
+                      run.workspaceId ? "Selected client" : "All clients",
+                    )}
+                  </small>
                   <p>{text(run.message)}</p>
                 </div>
                 {Boolean(run.reply || run.error) && (
@@ -482,19 +597,30 @@ export default function AssistantScreen() {
             <div ref={bottom} />
           </div>
           <form className="assistant-composer" onSubmit={submit}>
+            {!connected && (
+              <p className="assistant-connection-notice" role="status">
+                You can write and edit your command here. Connect your OpenAI
+                API key to run it.
+                <Link href="/?client=1&view=campaigns">
+                  {" "}
+                  Create a campaign directly
+                </Link>
+              </p>
+            )}
             <label className="sr-only" htmlFor="assistant-command">
-              Your command for Claude
+              Your message
             </label>
             <textarea
+              ref={commandInput}
               id="assistant-command"
               value={message}
               onChange={(event) => setMessage(event.target.value)}
               maxLength={6000}
-              disabled={!connected || waiting}
+              disabled={waiting}
               placeholder={
                 connected
-                  ? "Ask Claude to add a client, draft a campaign, or check your outreach…"
-                  : "Connect Claude to start working with your business."
+                  ? "Message your assistant…"
+                  : "Write your message here. Connect OpenAI when you are ready."
               }
               rows={3}
               onKeyDown={(event) => {
@@ -512,14 +638,14 @@ export default function AssistantScreen() {
               <small>Never paste passwords or API keys into chat.</small>
               <button
                 className="button"
-                disabled={!connected || waiting || !message.trim()}
+                disabled={waiting || (connected && !message.trim())}
               >
                 {waiting ? (
                   <LoaderCircle className="spin" size={15} />
                 ) : (
                   <Send size={15} />
                 )}
-                Send command
+                {connected ? "Send message" : "Connect OpenAI to chat"}
               </button>
             </div>
           </form>

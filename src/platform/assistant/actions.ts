@@ -19,6 +19,7 @@ import {
   type AssistantToolName,
 } from "./tools";
 import { safeAssistantText } from "./claude";
+import { assertAssistantClientScope } from "./context";
 
 export async function assistantAdmin() {
   const user = await currentUser();
@@ -147,6 +148,7 @@ export async function executeAssistantTool(
   });
   if (!run)
     throw new HttpError(409, "This assistant request is no longer active.");
+  assertAssistantClientScope(decrypt(run.encryptedInput), input);
   if (tool === "list_clients") {
     return {
       clients: (
@@ -307,7 +309,7 @@ export async function executeAssistantTool(
         tool === "create_client"
           ? "Create client portal login"
           : tool === "draft_campaign"
-            ? "Save campaign draft"
+            ? "Prepare campaign"
             : tool === "pause_campaign"
               ? "Pause campaign"
               : tool === "prepare_campaign_launch"

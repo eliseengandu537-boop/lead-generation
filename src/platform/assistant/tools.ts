@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { clientLoginInput } from "../client-access";
-import { defaultClaudeModel, type ClaudeTool } from "./claude";
+import { type ClaudeTool } from "./claude";
+import { defaultOpenAIModel } from "./openai";
 
 const business = { workspaceId: z.string().min(1).max(100) };
 const campaign = { ...business, campaignId: z.string().min(1).max(100) };
@@ -110,8 +111,8 @@ export const assistantConfigInput = z
     apiKey: z.string().trim().min(20).max(500),
     model: z
       .string()
-      .regex(/^claude-[a-zA-Z0-9._-]{1,90}$/)
-      .default(defaultClaudeModel),
+      .regex(/^gpt-[a-zA-Z0-9._-]{1,90}$/)
+      .default(defaultOpenAIModel),
   })
   .strict();
 export const assistantMessageInput = z
@@ -120,6 +121,7 @@ export const assistantMessageInput = z
     conversationId: z.string().min(1).max(100),
     requestId: z.uuid(),
     message: z.string().min(1).max(6000),
+    workspaceId: z.string().min(1).max(100).optional(),
   })
   .strict();
 export function requireUserEmail(email: string, userMessages: string[]) {

@@ -7,6 +7,7 @@ import { senderMatchesWebsite } from "./domain";
 import { gmailToken, googleRawMessage } from "./google";
 import { pauseUnsafeCampaign } from "./events";
 import { withinSendingWindow } from "./schedule";
+import { personalizeFollowup } from "./content";
 
 export class MailDeferredError extends Error {
   constructor(
@@ -84,15 +85,12 @@ export async function sendCampaignMessage(
         throw new Error(
           "Approved email content and recipient address are required",
         );
-      const personalize = (value: string) =>
-        value.replace(
-          /\{\{\s*(name|company|email|industry)\s*\}\}/g,
-          (_, field: "name" | "company" | "email" | "industry") =>
-            lead[field] || "",
-        );
       const subject =
-        step === 0 ? selected.subject : personalize(selected.subject);
-      const text = step === 0 ? selected.body : personalize(selected.body);
+        step === 0
+          ? selected.subject
+          : personalizeFollowup(selected.subject, lead);
+      const text =
+        step === 0 ? selected.body : personalizeFollowup(selected.body, lead);
       const digest = hash(
         JSON.stringify({
           campaignId,

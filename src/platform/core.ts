@@ -4,6 +4,7 @@ import { controlDb, db } from "@/lib/db";
 import { currentUser, HttpError, tenant } from "@/lib/auth";
 import { personalize, encrypt, decrypt, hash } from "@/lib/security";
 import { campaignReviewData } from "./mail/review";
+import { personalizeFollowup } from "./mail/content";
 import { enqueueJob } from "./jobs";
 import { senderMatchesWebsite } from "./mail/domain";
 import { databaseContext } from "@/lib/tenancy";
@@ -208,6 +209,156 @@ const templateFields = z.object({
   category: z.enum(["OUTREACH", "FOLLOW_UP", "REPLY"]).default("OUTREACH"),
 });
 
+async function composeCampaignReview(
+  transaction: Prisma.TransactionClient,
+  workspaceId: string,
+  input: unknown,
+) {
+  const values = campaignFields.parse(input);
+  if (!values.subject || !values.body)
+    throw new HttpError(400, "Campaign subject and message are required");
+  if (new Set(values.leadIds).size !== values.leadIds.length)
+    throw new HttpError(400, "Choose each lead only once");
+  if (values.sendStartHour === values.sendEndHour)
+    throw new HttpError(400, "Sending start and end hours must differ");
+  const [organization, mailbox, leads, subscription, suppressions, workspace] =
+    await Promise.all([
+      transaction.platformOrganization.findUniqueOrThrow({
+        where: { workspaceId },
+      }),
+      values.mailboxId
+        ? transaction.platformMailbox.findUnique({
+            where: { id: values.mailboxId },
+          })
+        : null,
+      transaction.platformLead.findMany({
+        where: { id: { in: values.leadIds }, status: { not: "ARCHIVED" } },
+        orderBy: { id: "asc" },
+      }),
+      transaction.platformSubscription.findUnique({
+        where: { workspaceId },
+        include: { plan: true },
+      }),
+      transaction.platformMailSuppression.findMany({ select: { email: true } }),
+      transaction.workspace.findUniqueOrThrow({
+        where: { id: workspaceId },
+        select: { timezone: true },
+      }),
+    ]);
+  if (leads.length !== values.leadIds.length)
+    throw new HttpError(
+      400,
+      "One or more leads do not belong to this business",
+    );
+  if (values.mailboxId && !mailbox)
+    throw new HttpError(400, "Mailbox does not belong to this business");
+  const blockers: { message: string; view: string }[] = [];
+  if (process.env.LIVE_EMAIL_ENABLED !== "true")
+    blockers.push({
+      message: "Live campaign sending has not been enabled on the platform.",
+      view: "mailboxes",
+    });
+  if (!organization.profileApprovedAt)
+    blockers.push({
+      message: "Review and approve the business profile and targeting.",
+      view: "business",
+    });
+  if (
+    !mailbox ||
+    mailbox.status !== "LIVE_ENABLED" ||
+    mailbox.provider !== "GMAIL" ||
+    !senderMatchesWebsite(mailbox.email, [organization.websiteUrl])
+  )
+    blockers.push({
+      message: "Connect and activate this client's own sending mailbox.",
+      view: "mailboxes",
+    });
+  if (
+    !subscription ||
+    !["ACTIVE", "TRIAL"].includes(subscription.status) ||
+    (subscription.periodEnd && subscription.periodEnd < new Date()) ||
+    subscription.plan.dailyEmails < 1
+  )
+    blockers.push({
+      message: "An active plan or trial with email sending is required.",
+      view: "billing",
+    });
+  if (!leads.length)
+    blockers.push({
+      message:
+        "Select at least one eligible recipient. Add and qualify leads if this list is empty.",
+      view: "leads",
+    });
+  const suppressed = new Set(
+    suppressions.map((entry) => entry.email.toLowerCase()),
+  );
+  const recipients = leads.map((lead) => {
+    const reason = leadSendBlocker(
+      lead,
+      minimumQualificationScore(organization.qualificationCriteria),
+    );
+    if (reason)
+      blockers.push({ message: `${lead.company}: ${reason}`, view: "leads" });
+    if (lead.email && suppressed.has(lead.email.toLowerCase()))
+      blockers.push({
+        message: `${lead.company}: this address is suppressed.`,
+        view: "leads",
+      });
+    const contact = {
+      name: lead.name,
+      company: lead.company,
+      email: lead.email || "",
+    };
+    return {
+      leadId: lead.id,
+      company: lead.company,
+      email: lead.email,
+      subject: personalize(values.subject!, contact),
+      body: personalize(values.body!, contact),
+      steps: values.steps.map((step) => ({
+        ...step,
+        subject: personalizeFollowup(step.subject, lead),
+        body: personalizeFollowup(step.body, lead),
+      })),
+    };
+  });
+  const preview = {
+    sender: mailbox?.email || null,
+    timezone: workspace.timezone,
+    recipients,
+    blockers,
+    scheduledAt: values.scheduledAt,
+    sendStartHour: values.sendStartHour,
+    sendEndHour: values.sendEndHour,
+    dailyLimit: values.dailyLimit,
+  };
+  return {
+    ...preview,
+    fingerprint: hash(
+      JSON.stringify({
+        workspaceId,
+        values,
+        preview,
+        profileApprovedAt: organization.profileApprovedAt,
+        qualificationCriteria: organization.qualificationCriteria,
+        mailboxStatus: mailbox?.status,
+        leadEligibility: leads.map((lead) => ({
+          id: lead.id,
+          status: lead.status,
+          eligibility: lead.eligibility,
+          verificationStatus: lead.verificationStatus,
+          verifiedAt: lead.verifiedAt,
+          consentAt: lead.consentAt,
+          consentSource: lead.consentSource,
+          qualificationScore: lead.qualificationScore,
+          repliedAt: lead.repliedAt,
+          unsubscribedAt: lead.unsubscribedAt,
+        })),
+      }),
+    ),
+  };
+}
+
 export function minimumQualificationScore(criteria: Prisma.JsonValue) {
   const value =
     criteria && typeof criteria === "object" && !Array.isArray(criteria)
@@ -292,6 +443,10 @@ export async function readResource(workspaceId: string, resource: string) {
       };
     case "campaigns":
       return {
+        sending: {
+          enabled: process.env.LIVE_EMAIL_ENABLED === "true",
+          profileApproved: Boolean(organization.profileApprovedAt),
+        },
         items: await db.platformCampaign.findMany({
           include: {
             _count: { select: { recipients: true } },
@@ -449,6 +604,10 @@ export async function mutateAuthorizedResource(
   }
   return db.$transaction(async (transaction) => {
     await transaction.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${workspaceId}))`;
+    const organization =
+      await transaction.platformOrganization.findUniqueOrThrow({
+        where: { workspaceId },
+      });
     const operationKey = operation?.idempotencyKey;
     const scopeHash = hash(
       JSON.stringify({
@@ -470,7 +629,14 @@ export async function mutateAuthorizedResource(
         return JSON.parse(decrypt(receipt.encryptedResult));
       }
     }
-    const perform = async () => {
+    const originalInput = input;
+    const perform = async (input: unknown = originalInput): Promise<object> => {
+      const envelope = z
+        .object({
+          action: z.string().default("update"),
+          id: z.string().max(100).optional(),
+        })
+        .parse(input);
       if (resource === "leads") {
         if (envelope.action === "import") {
           const inputRows = z
@@ -714,6 +880,55 @@ export async function mutateAuthorizedResource(
         return result;
       }
       if (resource === "campaigns") {
+        if (
+          envelope.action === "preview" ||
+          envelope.action === "create-and-send"
+        ) {
+          const preview = await composeCampaignReview(
+            transaction,
+            workspaceId,
+            input,
+          );
+          if (envelope.action === "preview") return preview;
+          const confirmation = z
+            .object({
+              permissionConfirmed: z.literal(true),
+              previewHash: z.string().length(64),
+            })
+            .parse(input);
+          if (!operation?.idempotencyKey)
+            throw new HttpError(
+              400,
+              "A unique request identifier is required to launch a campaign.",
+            );
+          if (preview.blockers.length)
+            throw new HttpError(
+              409,
+              preview.blockers.map((item) => item.message).join(" "),
+            );
+          if (preview.fingerprint !== confirmation.previewHash)
+            throw new HttpError(
+              409,
+              "The campaign or sending setup changed. Review the updated messages before sending.",
+            );
+          const campaign = z.object({ id: z.string() }).parse(
+            await perform({
+              ...campaignFields.parse(input),
+              action: "create",
+            }),
+          );
+          await perform({
+            action: "approve",
+            id: campaign.id,
+            useCampaignMessage: true,
+          });
+          const launched = await perform({ action: "start", id: campaign.id });
+          return {
+            ...launched,
+            message:
+              "Campaign launched. Messages are queued for your connected sending worker; delivery follows the sending schedule and daily limit.",
+          };
+        }
         const existing =
           envelope.action !== "create"
             ? await transaction.platformCampaign.findUnique({
@@ -857,6 +1072,10 @@ export async function mutateAuthorizedResource(
           return campaign;
         }
         if (envelope.action === "approve") {
+          const useCampaignMessage =
+            z
+              .object({ useCampaignMessage: z.boolean().optional() })
+              .parse(input).useCampaignMessage === true;
           if (!["DRAFT", "PAUSED", "APPROVED"].includes(existing!.status))
             throw new HttpError(
               409,
@@ -872,6 +1091,7 @@ export async function mutateAuthorizedResource(
           const approvedAt = new Date();
           for (const recipient of existing!.recipients) {
             const hasDraft =
+              !useCampaignMessage &&
               !!recipient.lead.draftSubject.trim() &&
               !!recipient.lead.draftBody.trim();
             const contact = {

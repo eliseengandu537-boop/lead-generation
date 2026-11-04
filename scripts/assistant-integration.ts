@@ -346,6 +346,182 @@ async function main() {
   pass(
     "The email review binds actual messages; changed content and the disabled sending gate prevent launching without any provider request",
   );
+  // Create-and-send uses the same approval and sending checks in one transaction.
+  // These fixtures only enqueue local jobs; no worker or email provider is called.
+  const launchInput = {
+    ...draft,
+    name: "One-step launch",
+    subject: "Hello {{company}}",
+    body: "Hello {{name}}, this is the reviewed campaign message. Reply to opt out.",
+    leadIds: [lead.id],
+    steps: [
+      {
+        delayDays: 3,
+        subject: "Following up with {{company}}",
+        body: "For {{industry}}. Reply to opt out.",
+      },
+    ],
+    sendStartHour: 0,
+    sendEndHour: 24,
+    sendWeekdays: [1, 2, 3, 4, 5, 6, 7],
+  };
+  const mutate = (input: unknown, key?: string) =>
+    withTenantDatabase(a.workspaceId, () =>
+      mutateAuthorizedResource(
+        { ...access, organization: fresh },
+        "campaigns",
+        input,
+        key ? { idempotencyKey: key } : undefined,
+      ),
+    );
+  const beforeLaunch = await controlDb.platformCampaign.count({
+    where: { workspaceId: a.workspaceId },
+  });
+  const unavailable = await mutate({ ...launchInput, action: "preview" });
+  assert.ok(
+    unavailable.blockers.some((item: { message: string }) =>
+      /not been enabled/.test(item.message),
+    ),
+  );
+  await assert.rejects(
+    () =>
+      mutate(
+        {
+          ...launchInput,
+          action: "create-and-send",
+          permissionConfirmed: true,
+          previewHash: unavailable.fingerprint,
+        },
+        randomUUID(),
+      ),
+    /not been enabled/,
+  );
+  assert.equal(
+    await controlDb.platformCampaign.count({
+      where: { workspaceId: a.workspaceId },
+    }),
+    beforeLaunch,
+  );
+  assert.equal(
+    await controlDb.platformJob.count({
+      where: { workspaceId: a.workspaceId, kind: "SEND_CAMPAIGN" },
+    }),
+    0,
+  );
+  const mailbox = await controlDb.platformMailbox.create({
+    data: {
+      workspaceId: a.workspaceId,
+      email: "sender@supplier.example.invalid",
+      status: "LIVE_ENABLED",
+      encryptedCredentials: encrypt("{}"),
+      createdBy: admin.id,
+    },
+  });
+  const readyInput = { ...launchInput, mailboxId: mailbox.id };
+  process.env.LIVE_EMAIL_ENABLED = "true";
+  try {
+    const review = await mutate({ ...readyInput, action: "preview" });
+    assert.deepEqual(review.blockers, []);
+    assert.equal(review.recipients[0].subject, "Hello Consenting fixture");
+    assert.equal(
+      review.recipients[0].body,
+      "Hello Pat, this is the reviewed campaign message. Reply to opt out.",
+    );
+    assert.notEqual(review.recipients[0].subject, "Changed subject");
+    await assert.rejects(
+      () =>
+        mutate({
+          ...readyInput,
+          action: "create-and-send",
+          permissionConfirmed: true,
+          previewHash: review.fingerprint,
+        }),
+      /unique request identifier/,
+    );
+    await assert.rejects(() =>
+      mutate(
+        {
+          ...readyInput,
+          action: "create-and-send",
+          previewHash: review.fingerprint,
+        },
+        randomUUID(),
+      ),
+    );
+    await assert.rejects(
+      () =>
+        mutate({ ...readyInput, action: "preview", leadIds: [otherLead.id] }),
+      /do not belong/,
+    );
+    await controlDb.platformLead.update({
+      where: { id: lead.id },
+      data: { name: "Changed contact" },
+    });
+    await assert.rejects(
+      () =>
+        mutate(
+          {
+            ...readyInput,
+            action: "create-and-send",
+            permissionConfirmed: true,
+            previewHash: review.fingerprint,
+          },
+          randomUUID(),
+        ),
+      /changed/,
+    );
+    assert.equal(
+      await controlDb.platformCampaign.count({
+        where: { workspaceId: a.workspaceId },
+      }),
+      beforeLaunch,
+    );
+    const reviewed = await mutate({ ...readyInput, action: "preview" });
+    const launchKey = randomUUID();
+    const command = {
+      ...readyInput,
+      action: "create-and-send",
+      permissionConfirmed: true,
+      previewHash: reviewed.fingerprint,
+    };
+    const [launched, duplicate] = await Promise.all([
+      mutate(command, launchKey),
+      mutate(command, launchKey),
+    ]);
+    assert.equal(launched.id, duplicate.id);
+    assert.equal(launched.status, "RUNNING");
+    assert.equal(
+      await controlDb.platformCampaign.count({
+        where: { workspaceId: a.workspaceId },
+      }),
+      beforeLaunch + 1,
+    );
+    assert.equal(
+      await controlDb.platformJob.count({
+        where: { workspaceId: a.workspaceId, kind: "SEND_CAMPAIGN" },
+      }),
+      1,
+    );
+    const recipient =
+      await controlDb.platformCampaignRecipient.findFirstOrThrow({
+        where: { campaignId: launched.id },
+      });
+    assert.equal(recipient.subject, reviewed.recipients[0].subject);
+    assert.equal(recipient.body, reviewed.recipients[0].body);
+    assert.ok(recipient.approvedAt);
+    assert.equal(recipient.approvedBy, admin.id);
+    assert.equal(
+      await controlDb.platformMailMessage.count({
+        where: { workspaceId: a.workspaceId },
+      }),
+      0,
+    );
+  } finally {
+    process.env.LIVE_EMAIL_ENABLED = "false";
+  }
+  pass(
+    "Create-and-send previews actual campaign text, blocks incomplete setup without saving drafts, rejects stale review and cross-business leads, and concurrent retries produce one running campaign and one local job",
+  );
   const ownerHttp = await login(admin.email),
     clientHttp = await login(client.email),
     otherHttp = await login(other.email);

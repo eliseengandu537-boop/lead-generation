@@ -142,7 +142,7 @@ export default function AdminScreen() {
     workspaceId?: string;
   } | null>(null);
   const [revision, setRevision] = useState(0);
-  const [tab, setTab] = useState("command");
+  const [tab, setTab] = useState("assistant");
   const [mobile, setMobile] = useState(false);
   const [days, setDays] = useState("30");
   const [from, setFrom] = useState("");
@@ -275,6 +275,45 @@ export default function AdminScreen() {
     directory = rows(insights.directory),
     series = rows(insights.series),
     configuration = object(insights.configuration);
+  const [operationBusiness, setOperationBusiness] = useState("");
+  function workspaceTools(view: string, title: string) {
+    const available = organizations.filter(
+      (item) => item.status === "ACTIVE" && item.onboardingStatus !== "DEMO",
+    );
+    const chosen = available.some(
+      (item) => item.workspaceId === operationBusiness,
+    )
+      ? operationBusiness
+      : text(available[0]?.workspaceId, "");
+    if (!chosen) return null;
+    return (
+      <div className="surface admin-workspace-tools">
+        <label>
+          Client business
+          <select
+            value={chosen}
+            onChange={(event) => setOperationBusiness(event.target.value)}
+          >
+            {available.map((item) => (
+              <option
+                key={text(item.workspaceId)}
+                value={text(item.workspaceId)}
+              >
+                {text(item.name)}
+              </option>
+            ))}
+          </select>
+        </label>
+        <Link
+          className="button primary"
+          href={`/?client=${encodeURIComponent(chosen)}&view=${view}`}
+        >
+          {title}
+          <ArrowUpRight size={16} />
+        </Link>
+      </div>
+    );
+  }
   const active = navigation.find((item) => item.id === tab)!;
   const lookup = new Map(
     directory.map((organization) => [
@@ -961,7 +1000,12 @@ export default function AdminScreen() {
             <Loading />
           ) : (
             <div className="admin-view" key={tab}>
-              {tab === "assistant" && <AssistantScreen />}
+              {tab === "assistant" && (
+                <AssistantScreen
+                  clients={organizations}
+                  onCreateClient={() => setClientLogin({})}
+                />
+              )}
               {tab === "command" && (
                 <>
                   <div className="admin-intro">
@@ -1165,6 +1209,16 @@ export default function AdminScreen() {
                                 </td>
                                 <td>
                                   <div className="row-actions">
+                                    <Link
+                                      href={`/?client=${encodeURIComponent(text(organization.workspaceId))}&view=settings`}
+                                    >
+                                      Edit client
+                                    </Link>
+                                    <Link
+                                      href={`/?client=${encodeURIComponent(text(organization.workspaceId))}&view=campaigns`}
+                                    >
+                                      Create and send
+                                    </Link>
                                     {organization.status === "ACTIVE" &&
                                       organization.onboardingStatus !==
                                         "DEMO" && (
@@ -1225,6 +1279,7 @@ export default function AdminScreen() {
               )}
               {tab === "leads" && (
                 <>
+                  {workspaceTools("leads", "Add or edit leads")}
                   {metrics([
                     { key: "discovered", name: "Businesses discovered" },
                     { key: "qualified", name: "Qualified leads" },
@@ -1262,6 +1317,7 @@ export default function AdminScreen() {
               )}
               {tab === "outreach" && (
                 <>
+                  {workspaceTools("mailboxes", "Manage sending mailbox")}
                   {metrics([
                     {
                       key: "sent",
@@ -1313,6 +1369,7 @@ export default function AdminScreen() {
               )}
               {tab === "campaigns" && (
                 <>
+                  {workspaceTools("campaigns", "Create and send campaign")}
                   {metrics([
                     { key: "campaigns", name: "Total campaigns" },
                     { key: "activeCampaigns", name: "Active campaigns" },
@@ -1862,6 +1919,26 @@ export default function AdminScreen() {
                 >
                   Open client workspace <ArrowUpRight size={15} />
                 </Link>
+                <div className="inline-actions">
+                  <Link
+                    className="button"
+                    href={`/?client=${encodeURIComponent(selected)}&view=business`}
+                  >
+                    Edit website and targeting
+                  </Link>
+                  <Link
+                    className="button"
+                    href={`/?client=${encodeURIComponent(selected)}&view=leads`}
+                  >
+                    Manage leads
+                  </Link>
+                  <Link
+                    className="button"
+                    href={`/?client=${encodeURIComponent(selected)}&view=campaigns`}
+                  >
+                    Create and send campaign
+                  </Link>
+                </div>
                 {metrics(
                   [
                     { key: "discovered", name: "Discovered" },
