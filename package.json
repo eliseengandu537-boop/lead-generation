@@ -16,6 +16,7 @@
     "db:migrate": "prisma migrate deploy",
     "worker": "node --env-file-if-exists=.env --import tsx src/worker.ts",
     "automation:start": "node scripts/local-automation.mjs start",
+    "automation:worker": "node scripts/local-worker.mjs",
     "automation:check": "node scripts/local-automation.mjs check",
     "automation:stop": "node scripts/local-automation.mjs stop",
     "test:integration": "node --env-file=.env --import tsx scripts/platform-integration.ts",
@@ -24,6 +25,7 @@
     "n8n:generate": "tsx scripts/generate-n8n-workflows.ts"
   },
   "dependencies": {
+    "@duckdb/node-api": "^2.0.0-r.1",
     "@prisma/client": "^6.19.0",
     "@twilio/voice-sdk": "^2.18.5",
     "bcryptjs": "^3.0.2",

@@ -278,7 +278,404 @@
 .caller-shade {
   display: none;
 }
+.caller-topbar-caption {
+  display: block;
+  color: var(--muted);
+  font-size: 11px;
+  margin-top: 6px;
+}
+.caller-nav-count {
+  margin-left: auto;
+  background: var(--accent-soft);
+  border-radius: 6px;
+  padding: 3px 7px;
+  font-size: 11px;
+}
+.caller-journey {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 24px;
+  padding: 20px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.caller-journey span {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.caller-journey b {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-radius: 50%;
+}
+.caller-prospect-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+}
+.caller-prospect-heading {
+  display: flex;
+  align-items: flex-start;
+  gap: 15px;
+}
+.caller-prospect-heading > div {
+  flex: 1;
+  min-width: 0;
+}
+.caller-prospect-heading h3 {
+  margin: 4px 0 9px;
+  font-size: 19px;
+  letter-spacing: -0.3px;
+  overflow-wrap: anywhere;
+}
+.caller-prospect-heading p {
+  margin: 0 0 8px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.caller-business-icon {
+  display: grid;
+  place-items: center;
+  width: 46px;
+  height: 46px;
+  flex-shrink: 0;
+  background: var(--accent-soft);
+  color: var(--accent);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  font-size: 20px;
+  font-weight: 750;
+}
+.caller-prospect-contact {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 22px 0;
+  font-size: 14px;
+}
+.caller-prospect-contact span {
+  font-size: 12px;
+  color: var(--muted);
+}
+.caller-research-details {
+  margin-top: 22px;
+  padding-top: 17px;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.9;
+}
+.caller-research-details summary {
+  cursor: pointer;
+  color: var(--ink);
+  font-weight: 600;
+}
+.caller-research-details ul {
+  padding-left: 20px;
+}
+.caller-research-details small {
+  display: block;
+  line-height: 1.8;
+}
+.caller-followup {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--accent);
+  font-size: 12px;
+}
+.caller-how-it-works p {
+  font-size: 13px;
+  line-height: 1.9;
+  max-width: 900px;
+}
+.caller-how-it-works h3 {
+  font-size: 17px;
+}
+.caller-research-toolbar {
+  display: grid;
+  grid-template-columns: minmax(150px, 1fr) minmax(150px, 1fr) auto;
+  align-items: end;
+  gap: 14px;
+}
+.caller-research-toolbar label {
+  display: grid;
+  gap: 8px;
+  font-size: 12px;
+}
+.caller-research-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 17px;
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.8;
+}
+.caller-status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  flex-shrink: 0;
+}
+.caller-filter-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+.caller-filter-tabs button.active {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.caller-live-heading {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+}
+.caller-live-heading h3 {
+  margin: 5px 0;
+}
+.caller-live-call {
+  border: 1px solid var(--accent);
+  display: grid;
+  gap: 16px;
+}
+.caller-live-call .caller-call-notes {
+  display: grid;
+  gap: 10px;
+  font-size: 12px;
+}
+.caller-outcomes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.caller-outcomes button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+.caller-meeting {
+  width: min(740px, calc(100% - 32px));
+  max-height: 90dvh;
+  border: 1px solid var(--line-strong);
+  border-radius: 16px;
+  background: var(--surface);
+  color: var(--ink);
+  padding: 28px;
+  margin: auto;
+  overflow: auto;
+  box-shadow: 0 24px 80px #0005;
+}
+.caller-meeting::backdrop {
+  background: #020617a6;
+  backdrop-filter: blur(4px);
+}
+.caller-meeting header {
+  align-items: flex-start;
+  margin-bottom: 25px;
+  gap: 14px;
+}
+.caller-meeting h2 {
+  font-size: 24px;
+  letter-spacing: -0.6px;
+  margin: 7px 0;
+}
+.caller-meeting form {
+  display: grid;
+  gap: 20px;
+}
+.caller-meeting label {
+  display: grid;
+  gap: 9px;
+  font-size: 12px;
+}
+.caller-meeting input,
+.caller-meeting textarea {
+  width: 100%;
+  min-width: 0;
+  padding: 12px;
+}
+.caller-meeting-contact {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+.caller-meeting-date {
+  max-width: 190px;
+}
+.caller-meeting .muted {
+  font-size: 12px;
+  line-height: 1.8;
+}
+.caller-slot-group {
+  padding: 0;
+  margin: 0;
+  border: 0;
+}
+.caller-slot-group legend {
+  font-size: 12px;
+  font-weight: 650;
+  margin-bottom: 10px;
+}
+.caller-slot-group > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 9px;
+}
+.caller-slot-group button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-width: 78px;
+}
+.caller-slot-group button.selected {
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.caller-chosen-slot {
+  display: flex;
+  gap: 9px;
+  align-items: center;
+  padding: 14px;
+  border-radius: 9px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 13px;
+}
+.caller-meeting label.caller-agreement {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  line-height: 1.7;
+}
+.caller-agreement input {
+  width: auto;
+  margin-top: 4px;
+}
+.caller-meeting-footer {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 10px;
+  border-top: 1px solid var(--line);
+  padding-top: 20px;
+}
+.caller-meeting-footer button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.admin-booking-bell {
+  position: relative;
+}
+.booking-notification-count {
+  position: absolute;
+  top: -3px;
+  right: -5px;
+  min-width: 17px;
+  height: 17px;
+  display: grid;
+  place-items: center;
+  background: var(--accent);
+  color: #fff;
+  border-radius: 10px;
+  padding: 0 4px;
+  font-size: 9px;
+}
+.booking-notification-panel {
+  position: absolute;
+  top: 45px;
+  right: 0;
+  width: min(420px, calc(100vw - 32px));
+  max-height: 65dvh;
+  overflow: auto;
+  background: var(--surface);
+  border: 1px solid var(--line-strong);
+  border-radius: 12px;
+  box-shadow: 0 15px 50px #0003;
+  z-index: 100;
+  padding: 17px;
+}
+.booking-notification-panel header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding-bottom: 14px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.booking-notification-panel h3 {
+  font-size: 14px;
+  color: var(--ink);
+  margin: 0;
+}
+.booking-notification-panel .booking-notification-item {
+  display: flex;
+  width: 100%;
+  align-items: flex-start;
+  text-align: left;
+  gap: 12px;
+  padding: 14px 10px;
+  border: 0;
+  border-top: 1px solid var(--line);
+  background: transparent;
+  border-radius: 0;
+  white-space: normal;
+}
+.booking-notification-item > svg {
+  flex-shrink: 0;
+  color: var(--accent);
+}
+.booking-notification-item.unread {
+  background: var(--accent-soft);
+}
+.booking-notification-item p {
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.8;
+  margin: 8px 0;
+}
+.booking-notification-item b {
+  font-size: 12px;
+}
+.booking-notification-item small {
+  font-size: 10px;
+  color: var(--muted);
+}
+.booking-toast {
+  position: fixed;
+  top: 100px;
+  right: 24px;
+  z-index: 130;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: calc(100vw - 40px);
+  background: var(--surface);
+  border: 1px solid var(--accent);
+  box-shadow: 0 10px 40px #0004;
+  border-radius: 10px;
+  padding: 16px;
+  font-size: 13px;
+}
 @media (max-width: 1100px) {
+  .caller-prospect-grid {
+    grid-template-columns: 1fr;
+  }
   .caller-content {
     padding: 28px;
   }
@@ -292,6 +689,66 @@
   }
 }
 @media (max-width: 760px) {
+  .caller-topbar-caption {
+    display: none;
+  }
+  .caller-topbar > div:first-of-type {
+    flex: 1;
+    font-size: 12px;
+  }
+  .caller-journey {
+    gap: 8px;
+    padding: 7px 0;
+    font-size: 10px;
+  }
+  .caller-journey > svg {
+    display: none;
+  }
+  .caller-journey span {
+    flex: 1;
+    flex-direction: column;
+    text-align: center;
+  }
+  .caller-prospect-heading {
+    flex-wrap: wrap;
+  }
+  .caller-prospect-heading > .badge {
+    margin-left: 60px;
+  }
+  .caller-research-toolbar {
+    grid-template-columns: 1fr 1fr;
+  }
+  .caller-research-toolbar > button {
+    grid-column: 1/-1;
+  }
+  .caller-outcomes {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+  .caller-outcomes .primary {
+    grid-column: 1/-1;
+  }
+  .caller-meeting {
+    padding: 20px;
+  }
+  .caller-meeting-contact {
+    grid-template-columns: 1fr;
+  }
+  .caller-meeting .card-heading {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+  .caller-meeting-footer button {
+    width: 100%;
+    justify-content: center;
+  }
+  .booking-notification-panel {
+    position: fixed;
+    top: 82px;
+    left: 16px;
+    right: 16px;
+    width: auto;
+  }
   .caller-sidebar {
     transform: translateX(-100%);
     transition: transform 0.2s;
@@ -353,5 +810,8 @@
   }
   .caller-content .caller-toolbar button {
     width: 100%;
+  }
+  .caller-content .caller-toolbar .caller-filter-tabs button {
+    width: auto;
   }
 }

@@ -78,7 +78,7 @@ export const bookingInput = z
       .min(2)
       .max(160)
       .refine((value) => !/[\r\n]/.test(value)),
-    hostId: z.string().min(1).max(100),
+    hostId: z.string().min(1).max(100).optional(),
     startAt: z.iso.datetime(),
     endAt: z.iso.datetime(),
     timezone: z.string().max(100).default("Africa/Johannesburg"),

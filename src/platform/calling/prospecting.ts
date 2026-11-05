@@ -1,0 +1,519 @@
+import { Prisma } from "@prisma/client";
+import { z } from "zod";
+import { controlDb } from "@/lib/db";
+import { HttpError, rateLimit } from "@/lib/auth";
+import { callerAccess } from "./access";
+import {
+  prospectCities,
+  prospectIndustries,
+  gautengDayStart,
+  inProspectArea,
+} from "./prospect-options";
+import { fetchWebsiteProspects, type ProspectCandidate } from "./overture";
+import { phoneNumber } from "./rules";
+
+export const prospectRequest = z
+  .object({
+    industry: z.enum(prospectIndustries).default("ALL"),
+    city: z.enum(["Gauteng", ...prospectCities]).default("Gauteng"),
+    requestId: z.uuid(),
+  })
+  .strict();
+export const prospectConfiguration = z
+  .object({
+    action: z.literal("configure-prospecting"),
+    workspaceId: z.string().min(1),
+    enabled: z.boolean(),
+    categories: z
+      .array(z.enum(["Restaurants", "Beauty"]))
+      .min(1)
+      .max(2),
+    cities: z.array(z.enum(prospectCities)).min(1).max(12),
+    dailyLimit: z.number().int().min(1).max(50),
+    maxQueue: z.number().int().min(10).max(250),
+    meetingHostId: z.string().min(1).optional(),
+    notifyAdminEmail: z.boolean().default(true),
+  })
+  .strict();
+export const readyLeadWhere = {
+  websitePresence: "NO_WEBSITE_LISTED",
+  doNotCall: false,
+  unsubscribedAt: null,
+  phone: { not: "" },
+  status: { notIn: ["ARCHIVED", "UNSUBSCRIBED"] },
+  salesQualification: "UNREVIEWED",
+} satisfies Prisma.PlatformLeadWhereInput;
+
+export async function requestProspectQueue(workspaceId: string, raw: unknown) {
+  const { user } = await callerAccess(workspaceId);
+  const input = prospectRequest.parse(raw);
+  await rateLimit(`prospecting-request:${user.id}`, 12, 60);
+  return controlDb.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${workspaceId}))`;
+    const config = await tx.platformProspectingConfig.findUnique({
+      where: { businessId: workspaceId },
+    });
+    if (!config?.enabled)
+      throw new HttpError(
+        409,
+        "Automatic prospecting is being set up by your administrator. Your existing leads are ready to work.",
+      );
+    if (
+      input.industry !== "ALL" &&
+      !z.array(z.string()).parse(config.categories).includes(input.industry)
+    )
+      throw new HttpError(
+        400,
+        "Choose a niche enabled for your calling queue.",
+      );
+    if (
+      input.city !== "Gauteng" &&
+      !z.array(z.string()).parse(config.cities).includes(input.city)
+    )
+      throw new HttpError(
+        400,
+        "Choose an area enabled for your calling queue.",
+      );
+    const same = await tx.platformProspectSearch.findUnique({
+      where: {
+        workspaceId_idempotencyKey: {
+          workspaceId,
+          idempotencyKey: `${user.id}:${input.requestId}`,
+        },
+      },
+    });
+    if (same)
+      return { search: same, message: "Your search request is already saved." };
+    const active = await tx.platformProspectSearch.findFirst({
+      where: { workspaceId, status: { in: ["QUEUED", "RUNNING"] } },
+      orderBy: { createdAt: "desc" },
+    });
+    if (active)
+      return {
+        search: active,
+        message:
+          "Prospect research is already running. New leads will appear automatically.",
+      };
+    const recent = await tx.platformProspectSearch.findFirst({
+      where: {
+        workspaceId,
+        industry: input.industry,
+        city: input.city,
+        createdAt: { gt: new Date(Date.now() - 10 * 60000) },
+      },
+      orderBy: { createdAt: "desc" },
+    });
+    if (recent)
+      return {
+        search: recent,
+        message:
+          recent.status === "COMPLETED"
+            ? "This area was checked recently. Work your ready leads or try another area."
+            : "The last search could not finish. It can be retried after a short cooldown.",
+      };
+    const search = await tx.platformProspectSearch.create({
+      data: {
+        workspaceId,
+        actorId: user.id,
+        idempotencyKey: `${user.id}:${input.requestId}`,
+        industry: input.industry,
+        city: input.city,
+      },
+    });
+    return {
+      search,
+      message:
+        "Finding restaurants and beauty businesses with phone numbers and no website listed. Results will appear in Ready leads when research finishes.",
+    };
+  });
+}
+
+export async function saveProspectingConfiguration(
+  adminId: string,
+  raw: unknown,
+) {
+  const input = prospectConfiguration.parse(raw);
+  if (
+    !(await controlDb.platformOrganization.findFirst({
+      where: {
+        workspaceId: input.workspaceId,
+        onboardingStatus: { not: "DEMO" },
+        workspace: { status: "ACTIVE" },
+      },
+      select: { workspaceId: true },
+    }))
+  )
+    throw new HttpError(400, "Choose an active business.");
+  if (
+    input.meetingHostId &&
+    !(await controlDb.user.findFirst({
+      where: { id: input.meetingHostId, agencyAdmin: true, disabledAt: null },
+      select: { id: true },
+    }))
+  )
+    throw new HttpError(
+      400,
+      "Choose an active administrator as the meeting host.",
+    );
+  const { action: _action, workspaceId, ...settings } = input;
+  void _action;
+  await controlDb.platformProspectingConfig.upsert({
+    where: { businessId: workspaceId },
+    create: { businessId: workspaceId, ...settings, updatedBy: adminId },
+    update: { ...settings, updatedBy: adminId, nextRunAt: new Date() },
+  });
+  return {
+    message: input.enabled
+      ? "Daily prospect research enabled. The automation worker prepares leads while it is online."
+      : "Automatic prospect research paused.",
+  };
+}
+
+export async function importProspectCandidates(
+  workspaceId: string,
+  actorId: string | null,
+  candidates: ProspectCandidate[],
+  limit: number,
+  tx: Prisma.TransactionClient,
+) {
+  const existing = await tx.platformLead.findMany({
+    where: { workspaceId },
+    select: { sourceRecordId: true, phone: true },
+    take: 20000,
+  });
+  const ids = new Set(existing.map((row) => row.sourceRecordId));
+  const phones = new Set(
+    existing.flatMap((row) => {
+      try {
+        return [phoneNumber(row.phone)];
+      } catch {
+        return [];
+      }
+    }),
+  );
+  const blocked = await tx.platformCall.findMany({
+    where: { workspaceId, outcome: "DO_NOT_CALL" },
+    select: { toNumber: true },
+  });
+  blocked.forEach((row) => phones.add(row.toNumber));
+  let added = 0;
+  for (const candidate of candidates) {
+    if (
+      added >= limit ||
+      ids.has(candidate.sourceRecordId) ||
+      phones.has(candidate.phone)
+    )
+      continue;
+    await tx.platformLead.create({
+      data: {
+        workspaceId,
+        company: candidate.company,
+        phone: candidate.phone,
+        email: candidate.email,
+        industry: candidate.industry,
+        location: candidate.location,
+        sourceKind: "OVERTURE",
+        sourceRecordId: candidate.sourceRecordId,
+        sourceUrl: "https://docs.overturemaps.org/guides/places/",
+        website: "",
+        websitePresence: candidate.websitePresence,
+        websiteCheckedAt: new Date(),
+        websiteEvidence: candidate.evidence as Prisma.InputJsonValue,
+        createdById: actorId,
+        notes:
+          "Website opportunity: this public source lists a business phone and no website. Ask the owner to confirm their current website before offering a meeting. Listing details can be outdated.",
+      },
+    });
+    ids.add(candidate.sourceRecordId);
+    phones.add(candidate.phone);
+    added++;
+  }
+  return added;
+}
+
+export async function prospectingTick(provider = fetchWebsiteProspects) {
+  // These jobs read public data directly on the local worker; they do not need
+  // the hosted web to stay awake or an n8n/provider credential.
+  await controlDb.platformProspectSearch.updateMany({
+    where: { status: "RUNNING", leaseUntil: { lt: new Date() } },
+    data: {
+      status: "FAILED",
+      error:
+        "Research worker stopped before this search finished. Your existing leads are safe.",
+      completedAt: new Date(),
+      leaseUntil: null,
+    },
+  });
+  const configs = await controlDb.platformProspectingConfig.findMany({
+    where: {
+      enabled: true,
+      nextRunAt: { lte: new Date() },
+      organization: {
+        onboardingStatus: { not: "DEMO" },
+        workspace: {
+          status: "ACTIVE",
+          memberships: {
+            some: {
+              role: "CALLER",
+              user: { disabledAt: null, staffRole: "CALLER" },
+            },
+          },
+        },
+      },
+    },
+    take: 10,
+  });
+  for (const config of configs)
+    await controlDb.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${config.businessId}))`;
+      const current = await tx.platformProspectingConfig.findUnique({
+        where: { businessId: config.businessId },
+      });
+      if (!current?.enabled || current.nextRunAt > new Date()) return;
+      if (
+        !(await tx.platformProspectSearch.findFirst({
+          where: {
+            workspaceId: config.businessId,
+            status: { in: ["QUEUED", "RUNNING"] },
+          },
+          select: { id: true },
+        }))
+      )
+        await tx.platformProspectSearch.upsert({
+          where: {
+            workspaceId_idempotencyKey: {
+              workspaceId: config.businessId,
+              idempotencyKey: `daily:${gautengDayStart().toISOString().slice(0, 10)}`,
+            },
+          },
+          create: {
+            workspaceId: config.businessId,
+            idempotencyKey: `daily:${gautengDayStart().toISOString().slice(0, 10)}`,
+          },
+          update: {},
+        });
+      await tx.platformProspectingConfig.update({
+        where: { businessId: config.businessId },
+        data: { nextRunAt: new Date(Date.now() + 24 * 3600000) },
+      });
+    });
+  const search = await controlDb.$transaction(async (tx) => {
+    const rows = await tx.$queryRaw<
+      { id: string }[]
+    >`SELECT s.id FROM "PlatformProspectSearch" s JOIN "PlatformProspectingConfig" c ON c."businessId"=s."workspaceId" JOIN "Workspace" w ON w.id=s."workspaceId" WHERE s.status='QUEUED' AND c.enabled=true AND w.status='ACTIVE' ORDER BY s."createdAt" FOR UPDATE OF s SKIP LOCKED LIMIT 1`;
+    if (!rows[0]) return null;
+    return tx.platformProspectSearch.update({
+      where: { id: rows[0].id },
+      data: {
+        status: "RUNNING",
+        attempts: { increment: 1 },
+        startedAt: new Date(),
+        leaseUntil: new Date(Date.now() + 10 * 60000),
+      },
+    });
+  });
+  if (!search) return false;
+  try {
+    const config = await controlDb.platformProspectingConfig.findUniqueOrThrow({
+      where: { businessId: search.workspaceId },
+    });
+    if (
+      search.actorId &&
+      !(await controlDb.user.findFirst({
+        where: {
+          id: search.actorId,
+          disabledAt: null,
+          OR: [
+            { agencyAdmin: true },
+            {
+              staffRole: "CALLER",
+              memberships: {
+                some: { workspaceId: search.workspaceId, role: "CALLER" },
+              },
+            },
+          ],
+        },
+        select: { id: true },
+      }))
+    )
+      throw new Error("Access changed");
+    const ready = await controlDb.platformLead.count({
+      where: { workspaceId: search.workspaceId, ...readyLeadWhere },
+    });
+    const today = gautengDayStart();
+    const used = await controlDb.platformLead.count({
+      where: {
+        workspaceId: search.workspaceId,
+        sourceKind: "OVERTURE",
+        createdAt: { gte: today },
+      },
+    });
+    const remaining = Math.max(
+      0,
+      Math.min(config.dailyLimit - used, config.maxQueue - ready),
+    );
+    if (remaining === 0) {
+      await controlDb.platformProspectSearch.update({
+        where: { id: search.id },
+        data: {
+          status: "COMPLETED",
+          summary:
+            "Your queue is stocked or today's research allowance has been reached.",
+          completedAt: new Date(),
+          leaseUntil: null,
+        },
+      });
+      await controlDb.platformProspectingConfig.update({
+        where: { businessId: search.workspaceId },
+        data: {
+          lastRunAt: new Date(),
+          lastStatus: "COMPLETED",
+          lastError: null,
+        },
+      });
+      return true;
+    }
+    const existing = await controlDb.platformLead.findMany({
+      where: { workspaceId: search.workspaceId, sourceRecordId: { not: null } },
+      select: { sourceRecordId: true },
+      take: 20000,
+    });
+    const categories = z
+      .array(z.enum(["Restaurants", "Beauty"]))
+      .parse(config.categories);
+    const industry =
+      search.industry === "ALL" && categories.length === 1
+        ? categories[0]
+        : search.industry;
+    const cities = z.array(z.enum(prospectCities)).parse(config.cities);
+    if (
+      (search.industry !== "ALL" &&
+        !categories.includes(search.industry as "Restaurants" | "Beauty")) ||
+      (search.city !== "Gauteng" &&
+        !cities.includes(search.city as (typeof prospectCities)[number]))
+    )
+      throw new Error("Targeting changed");
+    const found = await provider({
+      industry,
+      city: search.city,
+      cities,
+      exclude: existing.map((row) => row.sourceRecordId!),
+      limit: remaining,
+    });
+    await controlDb.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${search.workspaceId}))`;
+      const current = await tx.platformProspectingConfig.findUnique({
+        where: { businessId: search.workspaceId },
+      });
+      if (
+        !current?.enabled ||
+        !(await tx.workspace.findFirst({
+          where: { id: search.workspaceId, status: "ACTIVE" },
+        }))
+      )
+        throw new Error("Access changed");
+      if (
+        search.actorId &&
+        !(await tx.user.findFirst({
+          where: {
+            id: search.actorId,
+            disabledAt: null,
+            OR: [
+              { agencyAdmin: true },
+              {
+                staffRole: "CALLER",
+                memberships: {
+                  some: { workspaceId: search.workspaceId, role: "CALLER" },
+                },
+              },
+            ],
+          },
+          select: { id: true },
+        }))
+      )
+        throw new Error("Access changed");
+      const allowedCategories = z.array(z.string()).parse(current.categories);
+      const allowedCities = z.array(z.string()).parse(current.cities);
+      const candidates = found.candidates.filter((candidate) => {
+        const point = candidate.evidence.coordinates as
+          { latitude?: number; longitude?: number } | undefined;
+        return (
+          allowedCategories.includes(candidate.industry) &&
+          typeof point?.latitude === "number" &&
+          typeof point.longitude === "number" &&
+          inProspectArea(point.latitude, point.longitude, allowedCities) &&
+          (search.city === "Gauteng" ||
+            inProspectArea(point.latitude, point.longitude, [search.city]))
+        );
+      });
+      const freshReady = await tx.platformLead.count({
+        where: { workspaceId: search.workspaceId, ...readyLeadWhere },
+      });
+      const freshUsed = await tx.platformLead.count({
+        where: {
+          workspaceId: search.workspaceId,
+          sourceKind: "OVERTURE",
+          createdAt: { gte: gautengDayStart() },
+        },
+      });
+      const added = await importProspectCandidates(
+        search.workspaceId,
+        search.actorId,
+        candidates,
+        Math.max(
+          0,
+          Math.min(
+            current.dailyLimit - freshUsed,
+            current.maxQueue - freshReady,
+          ),
+        ),
+        tx,
+      );
+      const summary = `${added} new website opportunities prepared from ${found.checked} public listings checked.`;
+      await tx.platformProspectSearch.update({
+        where: { id: search.id },
+        data: {
+          status: "COMPLETED",
+          added,
+          checked: found.checked,
+          summary,
+          completedAt: new Date(),
+          leaseUntil: null,
+        },
+      });
+      await tx.platformProspectingConfig.update({
+        where: { businessId: search.workspaceId },
+        data: {
+          lastRunAt: new Date(),
+          lastStatus: "COMPLETED",
+          lastError: null,
+        },
+      });
+      await tx.platformActivity.create({
+        data: {
+          workspaceId: search.workspaceId,
+          actorId: search.actorId,
+          kind: "PROSPECTS_PREPARED",
+          detail: summary,
+        },
+      });
+    });
+  } catch {
+    const error =
+      "Public business research could not finish. Existing leads remain available; the next scheduled search will try again.";
+    await controlDb.platformProspectSearch.update({
+      where: { id: search.id },
+      data: {
+        status: "FAILED",
+        error,
+        completedAt: new Date(),
+        leaseUntil: null,
+      },
+    });
+    await controlDb.platformProspectingConfig.updateMany({
+      where: { businessId: search.workspaceId },
+      data: { lastRunAt: new Date(), lastStatus: "FAILED", lastError: error },
+    });
+  }
+  return true;
+}

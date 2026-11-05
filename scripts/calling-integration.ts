@@ -6,6 +6,9 @@ import { controlDb, db } from "../src/lib/db";
 import { withTenantDatabase } from "../src/lib/tenancy";
 import { encrypt } from "../src/lib/security";
 import { createOrganizationInTransaction } from "../src/platform/core";
+import { prospectingTick } from "../src/platform/calling/prospecting";
+import { prospectCities } from "../src/platform/calling/prospect-options";
+import { candidateFromPlace } from "../src/platform/calling/overture";
 
 const suffix = randomUUID(),
   password = randomUUID() + "!9";
@@ -158,6 +161,15 @@ async function main() {
     (await employee(`/api/platform/${a.workspaceId}/leads`)).status,
     403,
   );
+  assert.equal(firstSession.businesses[0].name, "Concrete");
+  assert.ok(!JSON.stringify(firstSession).includes("agency.example.invalid"));
+  const safeSession = await (await employee("/api/platform/session")).json();
+  assert.ok(!JSON.stringify(safeSession).includes("agency.example.invalid"));
+  for (const route of ["portal", "business", "mailboxes", "campaigns"])
+    assert.equal(
+      (await employee(`/api/platform/${a.workspaceId}/${route}`)).status,
+      403,
+    );
   assert.equal((await employee("/")).headers.get("location"), "/caller");
   pass(
     "Caller login redirects to its own dashboard; client, administration and unassigned-business operations are denied",
@@ -309,18 +321,76 @@ async function main() {
   );
   const startAt = new Date(Date.now() + 2 * 86400000).toISOString(),
     endAt = new Date(Date.now() + 2 * 86400000 + 1800000).toISOString();
+  const configuration = {
+    action: "configure-prospecting",
+    workspaceId: a.workspaceId,
+    enabled: false,
+    categories: ["Restaurants", "Beauty"],
+    cities: [...prospectCities],
+    dailyLimit: 3,
+    maxQueue: 10,
+    meetingHostId: owner.id,
+    notifyAdminEmail: true,
+  };
+  await post(admin, "/api/platform/admin/call-centre", configuration);
+  await post(admin, "/api/platform/admin/call-centre", {
+    ...configuration,
+    workspaceId: b.workspaceId,
+  });
+  const available = await (await employee(`${path}/availability`)).json();
+  assert.ok(available.slots.length > 0);
+  assert.equal(available.timezone, "Africa/Johannesburg");
+  for (const slot of available.slots) {
+    const local = new Date(new Date(slot.startAt).getTime() + 7200000);
+    assert.ok(local.getUTCDay() > 0 && local.getUTCDay() < 6);
+    assert.ok(local.getUTCHours() >= 9 && local.getUTCHours() < 17);
+    assert.equal(
+      new Date(slot.endAt).getTime() - new Date(slot.startAt).getTime(),
+      1800000,
+    );
+  }
+  assert.ok(!JSON.stringify(available).includes(owner.email));
   const bookingInput = {
     action: "book",
     leadId: lead.id,
     callId: phone.callId,
-    hostId: owner.id,
     title: "Discovery appointment",
     startAt,
     endAt,
     customerAgreed: true,
     notes: "PRIVATE-INTERNAL-NOTES",
+    requestId: randomUUID(),
   };
   const booking = await write(bookingInput);
+  assert.equal((await write(bookingInput)).id, booking.id);
+  assert.equal(
+    await controlDb.platformNotice.count({
+      where: { workspaceId: a.workspaceId, kind: "BOOKING_BOOKED" },
+    }),
+    1,
+  );
+  assert.equal(
+    (await employee("/api/platform/admin/call-centre/notifications")).status,
+    403,
+  );
+  const notices = await (
+    await admin("/api/platform/admin/call-centre/notifications")
+  ).json();
+  const meetingNotice = notices.items.find(
+    (row: { workspaceId: string }) => row.workspaceId === a.workspaceId,
+  );
+  assert.ok(meetingNotice && !meetingNotice.read);
+  assert.ok(!JSON.stringify(meetingNotice).includes("PRIVATE-INTERNAL-NOTES"));
+  await post(admin, "/api/platform/admin/call-centre/notifications", {
+    id: meetingNotice.id,
+  });
+  assert.ok(
+    (
+      await (
+        await admin("/api/platform/admin/call-centre/notifications")
+      ).json()
+    ).items.find((row: { id: string }) => row.id === meetingNotice.id).read,
+  );
   await write({ ...bookingInput, customerAgreed: false }, 400);
   const secondBusinessBooking = await post(
     colleague,
@@ -379,13 +449,24 @@ async function main() {
       dailyLimit: 5,
     };
   await post(employee, campaignRoute, campaign, 403);
-  await post(admin, "/api/platform/admin/call-centre", {
-    action: "assign-caller",
-    userId: caller.id,
-    assignments: [{ workspaceId: a.workspaceId, canSend: true }],
+  await post(
+    admin,
+    "/api/platform/admin/call-centre",
+    {
+      action: "assign-caller",
+      userId: caller.id,
+      assignments: [{ workspaceId: a.workspaceId, canSend: true }],
+    },
+    400,
+  );
+  // Even an older saved email grant cannot reopen the caller's admin workflows.
+  await controlDb.membership.update({
+    where: {
+      workspaceId_userId: { workspaceId: a.workspaceId, userId: caller.id },
+    },
+    data: { callerCanSend: true },
   });
-  const preview = await post(employee, campaignRoute, campaign);
-  assert.ok(preview.blockers.length > 0);
+  await post(employee, campaignRoute, campaign, 403);
   await post(
     employee,
     campaignRoute,
@@ -399,10 +480,10 @@ async function main() {
       ...campaign,
       action: "create-and-send",
       permissionConfirmed: true,
-      previewHash: preview.fingerprint,
+      previewHash: "unavailable",
       requestId: randomUUID(),
     },
-    409,
+    403,
   );
   assert.equal(
     await controlDb.platformCampaign.count({
@@ -411,7 +492,7 @@ async function main() {
     0,
   );
   pass(
-    "Delegated email permission is explicit and scoped; foreign leads and incomplete live sending setup cannot launch campaigns",
+    "Caller accounts cannot access email campaigns, including accounts with an obsolete saved email grant",
   );
   const accountSid = "AC" + "a".repeat(32),
     authToken = "test-auth-" + randomUUID(),
@@ -561,6 +642,15 @@ async function main() {
       () =>
         db.$queryRaw`SELECT "encryptedCredentials" FROM "PlatformVoiceProvider"`,
     );
+    await assert.rejects(
+      () => db.$queryRaw`SELECT * FROM "PlatformProspectingConfig"`,
+    );
+    assert.equal(
+      await db.platformProspectSearch.count({
+        where: { workspaceId: b.workspaceId },
+      }),
+      0,
+    );
   });
   await write({
     action: "call-outcome",
@@ -580,6 +670,143 @@ async function main() {
   );
   pass(
     "Administrator metrics count real provider attempts only; credentials are control-only, staff are separate from clients, and opt-outs block duplicate phone numbers",
+  );
+  await post(employee, `${path}/prospects`, { requestId: randomUUID() }, 409);
+  await post(
+    employee,
+    "/api/platform/admin/call-centre",
+    { ...configuration, enabled: true },
+    403,
+  );
+  await post(admin, "/api/platform/admin/call-centre", {
+    ...configuration,
+    enabled: true,
+    notifyAdminEmail: false,
+  });
+  const researchRequest = {
+    requestId: randomUUID(),
+    industry: "ALL",
+    city: "Gauteng",
+  };
+  const research = await post(employee, `${path}/prospects`, researchRequest);
+  assert.equal(
+    (await post(employee, `${path}/prospects`, researchRequest)).search.id,
+    research.search.id,
+  );
+  const makeCandidate = (
+    id: string,
+    phone: string,
+    category = "beauty_salon",
+  ) =>
+    candidateFromPlace(
+      {
+        id,
+        company: `Public fixture ${id}`,
+        phone,
+        category,
+        confidence: 0.9,
+        websites: null,
+        addresses: [{ country: "ZA", region: "GP", locality: "Johannesburg" }],
+        sources: [{ dataset: "synthetic local fixture" }],
+        lon: 28.04,
+        lat: -26.2,
+      },
+      "2026-10-21.0",
+    )!;
+  const candidates = [
+    makeCandidate("first", "0812345678"),
+    makeCandidate("second", "0812345679", "restaurant"),
+    makeCandidate("repeat-phone", "0812345678"),
+    makeCandidate("opted-out", "+27821234567"),
+  ];
+  await prospectingTick(async () => ({ checked: 4, candidates }));
+  const imported = await controlDb.platformLead.findMany({
+    where: { workspaceId: a.workspaceId, sourceKind: "OVERTURE" },
+  });
+  assert.equal(imported.length, 2);
+  assert.ok(
+    imported.every(
+      (row) =>
+        !row.ownerId &&
+        row.eligibility === "UNKNOWN" &&
+        row.verificationStatus === "UNKNOWN" &&
+        row.websitePresence === "NO_WEBSITE_LISTED" &&
+        row.websiteCheckedAt,
+    ),
+  );
+  const readyWorkspace = await (await employee(path)).json();
+  assert.equal(readyWorkspace.totals.ready, 2);
+  assert.ok(!JSON.stringify(readyWorkspace).includes("agency.example.invalid"));
+  assert.deepEqual(readyWorkspace.mailboxes, []);
+  assert.deepEqual(readyWorkspace.campaigns, []);
+  assert.equal(
+    await controlDb.platformLead.count({
+      where: { workspaceId: b.workspaceId, sourceKind: "OVERTURE" },
+    }),
+    0,
+  );
+  await controlDb.platformProspectSearch.create({
+    data: {
+      workspaceId: a.workspaceId,
+      actorId: caller.id,
+      idempotencyKey: `test-cap:${suffix}`,
+    },
+  });
+  await prospectingTick(async () => ({
+    checked: 3,
+    candidates: [
+      ...candidates,
+      makeCandidate("third", "0812345680"),
+      makeCandidate("fourth", "0812345681"),
+    ],
+  }));
+  assert.equal(
+    await controlDb.platformLead.count({
+      where: { workspaceId: a.workspaceId, sourceKind: "OVERTURE" },
+    }),
+    3,
+  );
+  pass(
+    "Automatic research creates real queued records, deduplicates phone/source IDs, respects opt-outs and daily caps, and does not grant email consent",
+  );
+  await controlDb.platformProspectingConfig.update({
+    where: { businessId: a.workspaceId },
+    data: { dailyLimit: 5 },
+  });
+  const revoked = await controlDb.platformProspectSearch.create({
+    data: {
+      workspaceId: a.workspaceId,
+      actorId: caller.id,
+      idempotencyKey: `test-revoked:${suffix}`,
+    },
+  });
+  await prospectingTick(async () => {
+    await controlDb.membership.delete({
+      where: {
+        workspaceId_userId: { workspaceId: a.workspaceId, userId: caller.id },
+      },
+    });
+    return { checked: 1, candidates: [makeCandidate("revoked", "0812345682")] };
+  });
+  assert.equal(
+    (
+      await controlDb.platformProspectSearch.findUniqueOrThrow({
+        where: { id: revoked.id },
+      })
+    ).status,
+    "FAILED",
+  );
+  assert.equal(
+    await controlDb.platformLead.count({
+      where: { workspaceId: a.workspaceId, sourceRecordId: "OVERTURE:revoked" },
+    }),
+    0,
+  );
+  await controlDb.membership.create({
+    data: { workspaceId: a.workspaceId, userId: caller.id, role: "CALLER" },
+  });
+  pass(
+    "Changes to caller access during a research job prevent its results from being saved",
   );
   const createdEmail = `calling-new-${suffix}@example.invalid`;
   const provisioned = await post(admin, "/api/platform/admin/call-centre", {
@@ -647,6 +874,13 @@ main()
     process.exitCode = 1;
   })
   .finally(async () => {
+    const accounts = await controlDb.user.findMany({
+      where: { id: { in: users } },
+      select: { email: true },
+    });
+    await controlDb.identityEmail.deleteMany({
+      where: { to: { in: accounts.map((row) => row.email) } },
+    });
     for (const workspaceId of workspaces) {
       await controlDb.platformBooking.deleteMany({ where: { workspaceId } });
       await controlDb.workspace.delete({ where: { id: workspaceId } });

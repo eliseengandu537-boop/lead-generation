@@ -51,6 +51,7 @@ import { MetricNumber, TrendChart } from "./charts";
 import { ClientLoginDialog } from "./client-login-dialog";
 import AssistantScreen from "./assistant-screen";
 import CallCentre from "./call-centre";
+import { AdminBookingBell } from "./admin-booking-bell";
 
 const navigation = [
   {
@@ -159,6 +160,7 @@ export default function AdminScreen() {
   const [campaignStatus, setCampaignStatus] = useState("ALL");
   const inspector = useRef<HTMLElement>(null);
   const period = range || `days=${days}`;
+  useEffect(() => { if (new URLSearchParams(window.location.search).get("section") === "call-centre") setTab("call-centre"); }, []);
   useEffect(() => {
     const controller = new AbortController();
     setLoading(true);
@@ -899,6 +901,7 @@ export default function AdminScreen() {
               Recorded platform data
             </span>
             <ThemeToggle compact />
+            <AdminBookingBell openMeetings={() => navigate("call-centre")} />
             <button
               className="icon-button"
               aria-label="Refresh platform data"

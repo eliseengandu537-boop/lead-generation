@@ -3,9 +3,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { signOut } from "next-auth/react";
 import type { Device, Call } from "@twilio/voice-sdk";
 import {
+  ArrowRight,
   CalendarDays,
-  CheckCheck,
-  Globe2,
+  ChevronRight,
+  Clock3,
   LayoutDashboard,
   LogOut,
   Menu,
@@ -16,8 +17,6 @@ import {
   Plus,
   Radar,
   RefreshCw,
-  Send,
-  Users,
   X,
 } from "lucide-react";
 import {
@@ -39,29 +38,17 @@ import {
   SectionHeading,
   type Dialog,
 } from "./primitives";
-import { CampaignComposer } from "./campaign-composer";
 import { ThemeToggle } from "./theme";
+import { CallerMeeting } from "./caller-meeting";
+import { prospectCities } from "@/platform/calling/prospect-options";
 
 const tabs = [
-  ["overview", "My dashboard", LayoutDashboard],
-  ["discover", "Find leads", Radar],
-  ["leads", "My leads", Users],
-  ["calls", "Calls", Phone],
-  ["bookings", "Bookings", CalendarDays],
-  ["outreach", "Email outreach", Send],
-  ["website", "Business website", Globe2],
+  ["overview", "My day", LayoutDashboard],
+  ["leads", "Find leads", Radar],
+  ["calls", "My calls", Phone],
+  ["bookings", "My meetings", CalendarDays],
 ] as const;
-const outcomes = [
-  "CONNECTED",
-  "NO_ANSWER",
-  "VOICEMAIL",
-  "WRONG_NUMBER",
-  "CALLBACK",
-  "QUALIFIED",
-  "NOT_QUALIFIED",
-  "DO_NOT_CALL",
-];
-const finalStates = [
+const terminal = [
   "COMPLETED",
   "BUSY",
   "NO_ANSWER",
@@ -69,34 +56,59 @@ const finalStates = [
   "CANCELED",
   "EXPIRED",
 ];
-const values = (options: string[]) =>
-  options.map((value) => ({ value, label: label(value) }));
+const allowedPhone = (lead: RecordValue) =>
+  Boolean(lead.phone) &&
+  !lead.doNotCall &&
+  !lead.unsubscribedAt &&
+  !["ARCHIVED", "UNSUBSCRIBED"].includes(text(lead.status));
+const readyLead = (lead: RecordValue) =>
+  allowedPhone(lead) &&
+  lead.websitePresence === "NO_WEBSITE_LISTED" &&
+  lead.salesQualification === "UNREVIEWED";
+const timestamp = (value: unknown) =>
+  value ? new Date(String(value)).getTime() : 0;
+const sastDate = (value: unknown) =>
+  new Date(String(value)).toLocaleString("en-ZA", {
+    timeZone: "Africa/Johannesburg",
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  });
 
 export default function CallerDashboard() {
-  const [session, setSession] = useState<RecordValue>({});
-  const [workspace, setWorkspace] = useState("");
-  const [data, setData] = useState<RecordValue>({});
-  const [tab, setTab] = useState("overview");
-  const [mobile, setMobile] = useState(false);
-  const [error, setError] = useState("");
-  const [notice, setNotice] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [search, setSearch] = useState("");
-  const [directory, setDirectory] = useState<RecordValue | null>(null);
-  const [webNiche, setWebNiche] = useState("");
-  const [webCity, setWebCity] = useState("");
-  const [dialog, setDialog] = useState<Dialog | null>(null);
-  const [compose, setCompose] = useState(false);
-  const [active, setActive] = useState<RecordValue | null>(null);
-  const [callState, setCallState] = useState("");
-  const [muted, setMuted] = useState(false);
-  const device = useRef<Device | null>(null);
-  const connection = useRef<Call | null>(null);
-  const loadingWorkspace = useRef("");
+  const [session, setSession] = useState<RecordValue>({}),
+    [workspace, setWorkspace] = useState("");
+  const [data, setData] = useState<RecordValue>({}),
+    [tab, setTab] = useState("overview");
+  const [mobile, setMobile] = useState(false),
+    [busy, setBusy] = useState(false),
+    [searching, setSearching] = useState(false);
+  const [error, setError] = useState(""),
+    [notice, setNotice] = useState("");
+  const [filter, setFilter] = useState("READY"),
+    [query, setQuery] = useState(""),
+    [industry, setIndustry] = useState("ALL"),
+    [city, setCity] = useState("Gauteng");
+  const [dialog, setDialog] = useState<Dialog | null>(null),
+    [meeting, setMeeting] = useState<{
+      lead: RecordValue;
+      callId?: string;
+    } | null>(null);
+  const [active, setActive] = useState<RecordValue | null>(null),
+    [callState, setCallState] = useState("");
+  const [notes, setNotes] = useState(""),
+    [muted, setMuted] = useState(false);
+  const device = useRef<Device | null>(null),
+    connection = useRef<Call | null>(null),
+    currentWorkspace = useRef("");
+  const autoRequested = useRef(new Set<string>());
   const refresh = useCallback(async () => {
     if (!workspace) return;
     const result = await api(`/api/platform/${workspace}/caller`);
-    if (loadingWorkspace.current === workspace) setData(result);
+    if (currentWorkspace.current === workspace) setData(result);
   }, [workspace]);
   useEffect(() => {
     const controller = new AbortController();
@@ -116,24 +128,46 @@ export default function CallerDashboard() {
     return () => controller.abort();
   }, []);
   useEffect(() => {
-    loadingWorkspace.current = workspace;
-    setDirectory(null);
+    currentWorkspace.current = workspace;
     setData({});
     setError("");
     setActive(null);
+    setNotes("");
     void refresh().catch((problem) => setError(problem.message));
   }, [workspace, refresh]);
   useEffect(() => {
     if (!workspace) return;
-    const timer = setInterval(
+    const interval = setInterval(
       () => {
         if (document.visibilityState === "visible")
           void refresh().catch((problem) => setError(problem.message));
       },
-      active ? 5000 : 30000,
+      active ||
+        rows(object(data.prospecting).searches).some((run) =>
+          ["QUEUED", "RUNNING"].includes(text(run.status)),
+        )
+        ? 5000
+        : 30000,
     );
-    return () => clearInterval(timer);
-  }, [workspace, active, refresh]);
+    return () => clearInterval(interval);
+  }, [workspace, active, data.prospecting, refresh]);
+  useEffect(() => {
+    if (
+      !data.business ||
+      !object(data.prospecting).enabled ||
+      number(object(data.totals).ready) >= 5 ||
+      autoRequested.current.has(workspace)
+    )
+      return;
+    autoRequested.current.add(workspace);
+    void api(`/api/platform/${workspace}/caller/prospects`, "POST", {
+      industry: "ALL",
+      city: "Gauteng",
+      requestId: crypto.randomUUID(),
+    })
+      .then(() => refresh())
+      .catch((problem) => setError(problem.message));
+  }, [data, workspace, refresh]);
   useEffect(
     () => () => {
       connection.current?.disconnect();
@@ -148,26 +182,59 @@ export default function CallerDashboard() {
       ["Disconnected", "Failed"].includes(callState)
     )
       return;
-    const warn = (event: BeforeUnloadEvent) => {
-      event.preventDefault();
-    };
+    const warn = (event: BeforeUnloadEvent) => event.preventDefault();
     window.addEventListener("beforeunload", warn);
     return () => window.removeEventListener("beforeunload", warn);
   }, [active, callState]);
-  const business = object(data.business),
-    user = object(session.user),
-    totals = object(data.totals);
+  const user = object(session.user),
+    totals = object(data.totals),
+    prospecting = object(data.prospecting);
   const leads = rows(data.leads),
     calls = rows(data.calls),
     bookings = rows(data.bookings);
-  const activeRecord = calls.find((call) => call.id === active?.callId);
-  const matching = leads.filter((lead) =>
-    [lead.company, lead.name, lead.email, lead.phone, lead.salesQualification]
-      .join(" ")
-      .toLowerCase()
-      .includes(search.toLowerCase()),
-  );
-  async function action(input: RecordValue) {
+  const activeRecord = calls.find((call) => call.id === active?.callId),
+    activeLead = leads.find((lead) => lead.id === activeRecord?.leadId);
+  const ready = leads.filter(readyLead),
+    callbacks = leads.filter(
+      (lead) => allowedPhone(lead) && lead.salesQualification === "CALLBACK",
+    );
+  const next = [
+    ...callbacks
+      .filter((lead) => timestamp(lead.callbackAt) <= Date.now())
+      .sort((a, b) => timestamp(a.callbackAt) - timestamp(b.callbackAt)),
+    ...ready,
+  ][0];
+  const shown = leads
+    .filter(
+      (lead) =>
+        filter === "ALL" ||
+        (filter === "CALLBACK"
+          ? lead.salesQualification === "CALLBACK"
+          : readyLead(lead)),
+    )
+    .filter((lead) =>
+      [lead.company, lead.name, lead.phone, lead.location]
+        .join(" ")
+        .toLowerCase()
+        .includes(query.toLowerCase()),
+    )
+    .filter(
+      (lead) =>
+        industry === "ALL" ||
+        text(lead.industry)
+          .toLowerCase()
+          .includes(industry === "Beauty" ? "beauty" : "restaurant"),
+    )
+    .filter(
+      (lead) =>
+        city === "Gauteng" ||
+        text(lead.location).toLowerCase().includes(city.toLowerCase()),
+    );
+  const searches = rows(prospecting.searches),
+    running = searches.find((run) =>
+      ["QUEUED", "RUNNING"].includes(text(run.status)),
+    );
+  async function act(input: RecordValue) {
     const result = await api(`/api/platform/${workspace}/caller`, "POST", {
       ...input,
       requestId: input.requestId || crypto.randomUUID(),
@@ -176,244 +243,68 @@ export default function CallerDashboard() {
     await refresh();
     return result;
   }
-  async function run(input: RecordValue) {
-    setBusy(true);
+  async function findMore() {
+    if (searching) return;
+    setSearching(true);
     setError("");
     try {
-      return await action(input);
+      const result = await api(
+        `/api/platform/${workspace}/caller/prospects`,
+        "POST",
+        { industry, city, requestId: crypto.randomUUID() },
+      );
+      setNotice(text(result.message));
+      await refresh();
     } catch (problem) {
       setError((problem as Error).message);
     } finally {
-      setBusy(false);
+      setSearching(false);
     }
   }
-  function editLead(lead?: RecordValue) {
+  function addLead(lead?: RecordValue) {
+    const requestId = crypto.randomUUID();
     setDialog({
-      title: lead ? "Edit lead" : "Add a lead",
+      title: lead ? "Edit prospect" : "Add a prospect",
       initial: lead,
       fields: [
         { name: "company", label: "Business name", required: true },
-        { name: "name", label: "Contact name" },
+        { name: "name", label: "Contact person" },
         {
           name: "phone",
-          label: "Phone number",
+          label: "Business phone",
+          required: true,
           placeholder: "+27 82 123 4567",
         },
-        { name: "email", label: "Email address", type: "email" },
-        { name: "website", label: "Website", type: "url" },
-        { name: "industry", label: "Industry / niche" },
-        { name: "location", label: "City / province" },
-        { name: "sourceUrl", label: "Source URL", type: "url" },
+        { name: "location", label: "City / area" },
+        {
+          name: "industry",
+          label: "Business type",
+          type: "select",
+          options: [
+            { value: "Restaurants", label: "Restaurant" },
+            { value: "Beauty", label: "Beauty business" },
+          ],
+        },
         { name: "notes", label: "Notes", type: "textarea" },
       ],
       submit: (fields) =>
-        action({
+        act({
           ...fields,
           action: lead ? "edit-lead" : "add-lead",
           ...(lead ? { id: lead.id } : {}),
+          requestId,
         }),
     });
   }
-  function qualify(lead: RecordValue) {
-    setDialog({
-      title: `Qualify ${text(lead.company)}`,
-      detail:
-        "Record what you learned from the conversation. Sales qualification does not grant email permission.",
-      initial: {
-        qualification: lead.salesQualification,
-        notes: lead.salesQualificationNotes,
-      },
-      fields: [
-        {
-          name: "qualification",
-          label: "Sales qualification",
-          type: "select",
-          options: values([
-            "QUALIFIED",
-            "NOT_QUALIFIED",
-            "CALLBACK",
-            "UNREVIEWED",
-          ]),
-          required: true,
-        },
-        {
-          name: "notes",
-          label: "Qualification notes",
-          type: "textarea",
-          required: true,
-        },
-      ],
-      submit: (fields) => action({ ...fields, action: "qualify", id: lead.id }),
-    });
-  }
-  function outcome(call: RecordValue) {
-    setDialog({
-      title: "Record call outcome",
-      detail:
-        call.mode === "PHONE"
-          ? "Vodacom activity is reported by you. Concrete cannot verify a SIM call or measure its duration."
-          : "The phone provider supplies call status and duration. Add your conversation notes here.",
-      initial: {
-        outcome: call.outcome === "UNRECORDED" ? "CONNECTED" : call.outcome,
-        notes: call.notes,
-        reportedDurationSeconds: call.reportedDurationSeconds ?? "",
-      },
-      fields: [
-        {
-          name: "outcome",
-          label: "Outcome",
-          type: "select",
-          options: values(outcomes),
-          required: true,
-        },
-        { name: "notes", label: "Conversation notes", type: "textarea" },
-        ...(call.mode === "PHONE"
-          ? [
-              {
-                name: "reportedDurationSeconds",
-                label: "Duration in seconds (optional, reported by you)",
-                type: "number" as const,
-                min: 0,
-                max: 21600,
-              },
-            ]
-          : []),
-      ],
-      submit: async (fields) => {
-        const duration = fields.reportedDurationSeconds;
-        await action({
-          action: "call-outcome",
-          id: call.id,
-          outcome: fields.outcome,
-          notes: fields.notes,
-          ...(call.mode === "PHONE" && duration !== ""
-            ? { reportedDurationSeconds: Number(duration) }
-            : {}),
-        });
-        if (active?.callId === call.id) {
-          setActive(null);
-          device.current?.destroy();
-          device.current = null;
-        }
-      },
-    });
-  }
-  function book(lead: RecordValue) {
-    const hosts = rows(data.hosts);
-    setDialog({
-      title: `Book a meeting · ${text(lead.company)}`,
-      detail:
-        "Choose the appointment in your computer’s local timezone. The calendar download contains the exact appointment time. No email is sent automatically.",
-      fields: [
-        {
-          name: "title",
-          label: "Meeting title",
-          required: true,
-          value: `Discovery meeting · ${text(lead.company)}`,
-        },
-        {
-          name: "hostId",
-          label: "Meeting host",
-          type: "select",
-          required: true,
-          options: hosts.map((host) => ({
-            value: text(host.id),
-            label: text(host.name),
-          })),
-          value: hosts[0]?.id,
-        },
-        {
-          name: "startAt",
-          label: "Start time (your local time)",
-          type: "datetime-local",
-          required: true,
-        },
-        {
-          name: "minutes",
-          label: "Duration in minutes",
-          type: "number",
-          min: 1,
-          max: 480,
-          value: 30,
-          required: true,
-        },
-        { name: "location", label: "Location / phone meeting" },
-        { name: "meetingUrl", label: "Meeting link (HTTPS)", type: "url" },
-        { name: "notes", label: "Internal notes", type: "textarea" },
-        {
-          name: "customerAgreed",
-          label: "The prospect agreed to this appointment",
-          type: "checkbox",
-          required: true,
-        },
-      ],
-      submit: (fields) => {
-        const start = new Date(String(fields.startAt));
-        return action({
-          action: "book",
-          leadId: lead.id,
-          title: fields.title,
-          hostId: fields.hostId,
-          startAt: start.toISOString(),
-          endAt: new Date(
-            start.getTime() + Number(fields.minutes) * 60000,
-          ).toISOString(),
-          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-          location: fields.location,
-          meetingUrl: fields.meetingUrl,
-          notes: fields.notes,
-          customerAgreed: fields.customerAgreed,
-        });
-      },
-    });
-  }
-  function updateBooking(booking: RecordValue) {
-    setDialog({
-      title: "Update booking",
-      initial: booking,
-      fields: [
-        {
-          name: "status",
-          label: "Booking status",
-          type: "select",
-          options: values(["SCHEDULED", "COMPLETED", "CANCELED", "NO_SHOW"]),
-          required: true,
-        },
-        {
-          name: "startAt",
-          label: "Start time (your local time)",
-          type: "datetime-local",
-          required: true,
-        },
-        {
-          name: "endAt",
-          label: "End time (your local time)",
-          type: "datetime-local",
-          required: true,
-        },
-      ],
-      submit: (fields) =>
-        action({
-          action: "update-booking",
-          id: booking.id,
-          version: booking.version,
-          status: fields.status,
-          startAt: new Date(String(fields.startAt)).toISOString(),
-          endAt: new Date(String(fields.endAt)).toISOString(),
-        }),
-    });
-  }
-  async function dial(lead: RecordValue, mode: "PHONE" | "BROWSER") {
+  async function dial(lead: RecordValue) {
     if (active || busy) return;
     setBusy(true);
     setError("");
+    setNotes("");
     let prepared: RecordValue | null = null;
     try {
-      prepared = await action({
-        action: "prepare-call",
-        leadId: lead.id,
-        mode,
-      });
+      const mode = object(data.voice).ready ? "BROWSER" : "PHONE";
+      prepared = await act({ action: "prepare-call", leadId: lead.id, mode });
       setActive(prepared);
       if (mode === "PHONE") {
         setTab("calls");
@@ -422,13 +313,15 @@ export default function CallerDashboard() {
       setCallState("Connecting microphone…");
       const { Device } = await import("@twilio/voice-sdk");
       device.current?.destroy();
-      const next = new Device(text(prepared.token), { closeProtection: true });
-      device.current = next;
-      next.on("error", (problem) => {
-        setError(problem.message || "Voice connection failed.");
+      const nextDevice = new Device(text(prepared.token), {
+        closeProtection: true,
+      });
+      device.current = nextDevice;
+      nextDevice.on("error", (problem) => {
+        setError(problem.message || "Calling connection failed.");
         setCallState("Failed");
       });
-      const call = await next.connect({
+      const call = await nextDevice.connect({
         params: {
           CallRecordId: text(prepared.callId),
           CallNonce: text(prepared.nonce),
@@ -455,7 +348,7 @@ export default function CallerDashboard() {
       device.current?.destroy();
       device.current = null;
       if (prepared?.callId)
-        await action({ action: "abandon-call", id: prepared.callId }).catch(
+        await act({ action: "abandon-call", id: prepared.callId }).catch(
           () => undefined,
         );
       setActive(null);
@@ -463,82 +356,193 @@ export default function CallerDashboard() {
       setBusy(false);
     }
   }
-  const leadList = (
-    <div className="caller-lead-list">
-      {matching.length ? (
-        matching.map((lead) => (
-          <article className="surface caller-lead" key={text(lead.id)}>
-            <div>
-              <h3>{text(lead.company)}</h3>
-              <p>
-                {text(lead.name, "Contact name not recorded")} ·{" "}
-                {text(lead.location, "Location not recorded")}
-              </p>
-              <p>
-                {text(lead.phone, "No phone")} · {text(lead.email, "No email")}
-              </p>
-              <Badge value={lead.salesQualification} />{" "}
-              {Boolean(lead.doNotCall) && <Badge value="DO_NOT_CALL" />}
-              <small>
-                {lead.ownerId
-                  ? "Assigned to you"
-                  : "Available · claimed when you work on it"}
-              </small>
-            </div>
-            <div className="caller-actions">
-              <button
-                disabled={busy || !!active || !lead.phone || !!lead.doNotCall}
-                onClick={() => void dial(lead, "PHONE")}
-              >
-                <Phone size={15} /> Vodacom phone
-              </button>
-              <button
-                disabled={
-                  busy ||
-                  !!active ||
-                  !lead.phone ||
-                  !!lead.doNotCall ||
-                  !object(data.voice).ready
-                }
-                onClick={() => void dial(lead, "BROWSER")}
-              >
-                Call in browser
-              </button>
-              <button onClick={() => editLead(lead)}>Edit</button>
-              <button onClick={() => qualify(lead)}>
-                <CheckCheck size={15} /> Qualify
-              </button>
-              <button onClick={() => book(lead)}>
-                <CalendarDays size={15} /> Book meeting
-              </button>
-            </div>
-          </article>
-        ))
-      ) : (
-        <Empty
-          title="Your lead list is ready"
-          detail="Add a real prospect or search for businesses to begin."
-          action={
-            <button onClick={() => editLead()}>
-              <Plus size={16} /> Add lead
-            </button>
+  function closeCall() {
+    connection.current?.disconnect();
+    device.current?.destroy();
+    connection.current = null;
+    device.current = null;
+    setActive(null);
+    setNotes("");
+    setMuted(false);
+  }
+  async function saveOutcome(
+    call: RecordValue,
+    lead: RecordValue | undefined,
+    outcome: string,
+    memo = notes,
+    callbackAt?: string,
+  ) {
+    if (busy) return false;
+    setBusy(true);
+    setError("");
+    try {
+      await act({
+        action: "call-outcome",
+        id: call.id,
+        outcome,
+        notes: memo,
+        ...(callbackAt ? { callbackAt } : {}),
+      });
+      closeCall();
+      if (outcome === "QUALIFIED" && lead)
+        setMeeting({ lead, callId: text(call.id) });
+      else
+        setNotice(
+          outcome === "NO_ANSWER"
+            ? "No answer recorded. A follow-up reminder is set for tomorrow."
+            : "Outcome saved. Your next prospect is ready.",
+        );
+      return true;
+    } catch (problem) {
+      setError((problem as Error).message);
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  }
+  function callback(call: RecordValue, lead: RecordValue | undefined) {
+    setDialog({
+      title: "Schedule a callback",
+      detail:
+        "Choose the time agreed with the prospect. It will appear in your callback list.",
+      fields: [
+        {
+          name: "callbackAt",
+          label: "Callback time (your local time)",
+          type: "datetime-local",
+          required: true,
+        },
+        {
+          name: "notes",
+          label: "Callback notes",
+          type: "textarea",
+          value: notes,
+        },
+      ],
+      submit: async (fields) => {
+        const saved = await saveOutcome(
+          call,
+          lead,
+          "CALLBACK",
+          text(fields.notes, "Callback requested by prospect."),
+          new Date(String(fields.callbackAt)).toISOString(),
+        );
+        if (!saved)
+          throw new Error(
+            "The callback could not be saved. Check the time and try again.",
+          );
+      },
+    });
+  }
+  function updateBooking(booking: RecordValue) {
+    setDialog({
+      title: "Update meeting",
+      initial: booking,
+      fields: [
+        {
+          name: "status",
+          label: "Meeting status",
+          type: "select",
+          required: true,
+          options: ["SCHEDULED", "COMPLETED", "CANCELED", "NO_SHOW"].map(
+            (value) => ({ value, label: label(value) }),
+          ),
+        },
+      ],
+      submit: (fields) =>
+        act({
+          action: "update-booking",
+          id: booking.id,
+          version: booking.version,
+          status: fields.status,
+        }),
+    });
+  }
+  const callAction = (lead: RecordValue, prominent = false) => (
+    <button
+      className={prominent ? "primary" : ""}
+      disabled={busy || !!active || !allowedPhone(lead)}
+      onClick={() => void dial(lead)}
+    >
+      <Phone size={16} />
+      Call {prominent ? "this business" : "now"}
+    </button>
+  );
+  const leadCard = (lead: RecordValue) => (
+    <article className="surface caller-prospect-card" key={text(lead.id)}>
+      <div className="caller-prospect-heading">
+        <span className="caller-business-icon">
+          {text(lead.company).slice(0, 1)}
+        </span>
+        <div>
+          <p className="eyebrow">{text(lead.industry, "Local business")}</p>
+          <h3>{text(lead.company)}</h3>
+          <p>{text(lead.location, "Gauteng")}</p>
+        </div>
+        <Badge
+          value={
+            lead.websitePresence === "NO_WEBSITE_LISTED"
+              ? "NO_WEBSITE_LISTED"
+              : lead.salesQualification
           }
         />
+      </div>
+      <div className="caller-prospect-contact">
+        <Phone size={16} />
+        <b>{text(lead.phone, "Add a phone number")}</b>
+        {!!lead.name && <span>{text(lead.name)}</span>}
+      </div>
+      {lead.salesQualification === "CALLBACK" && (
+        <p className="caller-followup">
+          <Clock3 size={15} />
+          Callback: {sastDate(lead.callbackAt)} SAST
+        </p>
       )}
-    </div>
+      <div className="caller-actions">
+        {callAction(lead, true)}
+        <button onClick={() => setMeeting({ lead })}>
+          <CalendarDays size={16} />
+          Book meeting
+        </button>
+        <button onClick={() => addLead(lead)}>Edit details</button>
+      </div>
+      <details className="caller-research-details">
+        <summary>Research notes & call prompts</summary>
+        <p>
+          {text(
+            lead.notes,
+            "Introduce yourself, ask who handles the business’s online enquiries, and check whether a website consultation would be useful.",
+          )}
+        </p>
+        <ul>
+          <li>Do you already have a business website?</li>
+          <li>How do customers book or enquire at the moment?</li>
+          <li>Would a short website consultation with Concrete help?</li>
+        </ul>
+        {lead.websitePresence === "NO_WEBSITE_LISTED" && (
+          <small>
+            Source: Overture Maps places ·{" "}
+            {text(object(lead.websiteEvidence).release)}. No website was listed;
+            confirm with the owner.
+          </small>
+        )}
+      </details>
+    </article>
   );
   return (
     <div className="caller-app">
       <aside className={`caller-sidebar ${mobile ? "is-open" : ""}`}>
         <a className="caller-brand" href="/caller">
-          <ConcreteMark small /> CONCRETE.
+          <ConcreteMark small />
+          CONCRETE.
         </a>
-        <p className="eyebrow">CALLER WORKSPACE</p>
+        <p className="eyebrow">CALLING WORKSPACE</p>
         <nav aria-label="Caller navigation">
           {tabs.map(([id, title, Icon]) => (
             <button
               key={id}
               className={tab === id ? "active" : ""}
+              aria-label={title}
               aria-current={tab === id ? "page" : undefined}
               onClick={() => {
                 setTab(id);
@@ -547,17 +551,21 @@ export default function CallerDashboard() {
             >
               <Icon size={18} />
               {title}
+              {id === "leads" && ready.length > 0 && (
+                <span className="caller-nav-count">{ready.length}</span>
+              )}
             </button>
           ))}
         </nav>
         <div className="caller-sidebar-bottom">
-          <p>{text(user.name, "Caller")}</p>
+          <p>{text(user.name, "Concrete caller")}</p>
           <small>{text(user.email, "")}</small>
           {Boolean(user.agencyAdmin) && (
             <a href="/admin">Back to administration</a>
           )}
           <button onClick={() => void signOut({ callbackUrl: "/login" })}>
-            <LogOut size={16} /> Sign out
+            <LogOut size={16} />
+            Sign out
           </button>
         </div>
       </aside>
@@ -577,30 +585,33 @@ export default function CallerDashboard() {
           >
             {mobile ? <X size={20} /> : <Menu size={20} />}
           </button>
-          <label>
-            Business
+          <div>
+            <b>
+              Concrete <span className="muted">/ Sales desk</span>
+            </b>
+            <small className="caller-topbar-caption">
+              Prospects, conversations and meetings.
+            </small>
+          </div>
+          {Boolean(user.agencyAdmin) && (
             <select
-              aria-label="Assigned business"
+              aria-label="Preview calling queue"
               value={workspace}
               disabled={!!active || busy}
-              onChange={(event) => {
-                setWorkspace(event.target.value);
-                setSearch("");
-                setNotice("");
-              }}
+              onChange={(event) => setWorkspace(event.target.value)}
             >
-              {rows(session.businesses).map((entry) => (
+              {rows(session.businesses).map((business) => (
                 <option
-                  key={text(entry.workspaceId)}
-                  value={text(entry.workspaceId)}
+                  key={text(business.workspaceId)}
+                  value={text(business.workspaceId)}
                 >
-                  {text(entry.name)}
+                  {text(business.name)}
                 </option>
               ))}
             </select>
-          </label>
+          )}
           <div className="caller-actions">
-            <ThemeToggle />
+            <ThemeToggle compact />
             <button
               className="icon-button"
               aria-label="Refresh dashboard"
@@ -608,19 +619,34 @@ export default function CallerDashboard() {
                 void refresh().catch((problem) => setError(problem.message))
               }
             >
-              <RefreshCw size={18} />
+              <RefreshCw size={17} />
             </button>
           </div>
         </header>
         <main id="main-content" className="caller-content">
           <SectionHeading
-            eyebrow={text(business.name, "Concrete sales workspace")}
-            title={tabs.find(([id]) => id === tab)?.[1] || "My dashboard"}
-            detail="Find a prospect. Have a conversation. Create an opportunity."
+            eyebrow="CONCRETE SALES"
+            title={
+              tab === "overview"
+                ? `Your next meeting starts here.`
+                : tabs.find(([id]) => id === tab)?.[1] || "My day"
+            }
+            detail={
+              tab === "overview"
+                ? `Welcome, ${text(user.name, "there")}. Find a business, have a conversation and book an agreed meeting.`
+                : "Your calling work, in one place."
+            }
           />
           {error && (
             <div className="alert error" role="alert">
               {error}
+              <button
+                className="icon-button"
+                aria-label="Dismiss error"
+                onClick={() => setError("")}
+              >
+                <X size={16} />
+              </button>
             </div>
           )}
           {notice && (
@@ -637,21 +663,23 @@ export default function CallerDashboard() {
           )}
           {active && (
             <section
-              className="surface caller-active-call"
+              className="surface caller-live-call"
               aria-label="Current call"
             >
-              <div>
-                <b>
-                  {active.mode === "PHONE"
-                    ? "Vodacom phone handoff"
-                    : "Browser call"}{" "}
-                  · {text(active.toNumber)}
-                </b>
-                <p>
-                  {active.mode === "PHONE"
-                    ? "Open the dialler on a device connected to your phone. Then record what actually happened."
-                    : `${callState} · Recorded status: ${label(activeRecord?.status || "PREPARED")}`}
-                </p>
+              <div className="caller-live-heading">
+                <span className="caller-business-icon">
+                  <Phone size={23} />
+                </span>
+                <div>
+                  <p className="eyebrow">YOUR CONVERSATION</p>
+                  <h3>{text(activeLead?.company, "Current prospect")}</h3>
+                  <p>
+                    {text(active.toNumber)} ·{" "}
+                    {active.mode === "PHONE"
+                      ? "Phone dialler handoff"
+                      : `${callState} · ${label(activeRecord?.status || "PREPARED")}`}
+                  </p>
+                </div>
               </div>
               <div className="caller-actions">
                 {active.mode === "PHONE" ? (
@@ -659,46 +687,122 @@ export default function CallerDashboard() {
                     className="button primary"
                     href={`tel:${text(active.toNumber)}`}
                   >
-                    <Phone size={16} /> Open phone dialler
+                    <Phone size={16} />
+                    Open phone dialler
                   </a>
                 ) : (
                   <>
                     <button
                       onClick={() => {
-                        const next = !muted;
-                        connection.current?.mute(next);
-                        setMuted(next);
+                        const value = !muted;
+                        connection.current?.mute(value);
+                        setMuted(value);
                       }}
                     >
                       {muted ? <MicOff size={16} /> : <Mic size={16} />}
                       {muted ? "Unmute" : "Mute"}
                     </button>
                     <button onClick={() => connection.current?.disconnect()}>
-                      <PhoneOff size={16} /> Hang up
+                      <PhoneOff size={16} />
+                      Hang up
                     </button>
                   </>
                 )}
+                {(active.mode === "PHONE" ||
+                  ["Disconnected", "Failed"].includes(callState)) && (
+                  <button
+                    onClick={async () => {
+                      if (active.mode === "BROWSER")
+                        await act({
+                          action: "abandon-call",
+                          id: active.callId,
+                        }).catch(() => undefined);
+                      closeCall();
+                    }}
+                  >
+                    Close call panel
+                  </button>
+                )}
+              </div>
+              <p className="muted">
+                {active.mode === "PHONE"
+                  ? "Use your linked phone to speak to the prospect, then record the actual outcome below. Phone activity is caller-reported."
+                  : "Wait for the provider’s final status before saving your conversation outcome."}
+              </p>
+              <label className="caller-call-notes">
+                Conversation notes
+                <textarea
+                  aria-label="Conversation notes"
+                  value={notes}
+                  onChange={(event) => setNotes(event.target.value)}
+                  rows={3}
+                  maxLength={5000}
+                  placeholder="Their needs, current website, decision maker and interest in a meeting…"
+                />
+              </label>
+              <div className="caller-outcomes">
                 {activeRecord &&
                   (active.mode === "PHONE" ||
-                    finalStates.includes(text(activeRecord.status))) && (
-                    <button
-                      className="primary"
-                      onClick={() => outcome(activeRecord)}
-                    >
-                      Record outcome
-                    </button>
-                  )}
-                {active.mode === "BROWSER" &&
-                  ["Disconnected", "Failed"].includes(callState) && (
-                    <button
-                      onClick={() => {
-                        void run({ action: "abandon-call", id: active.callId });
-                        setActive(null);
-                        device.current?.destroy();
-                      }}
-                    >
-                      Close call panel
-                    </button>
+                    terminal.includes(text(activeRecord.status))) && (
+                    <>
+                      <button
+                        className="primary"
+                        disabled={busy}
+                        onClick={() =>
+                          void saveOutcome(
+                            activeRecord,
+                            activeLead,
+                            "QUALIFIED",
+                          )
+                        }
+                      >
+                        <CalendarDays size={17} />
+                        Interested — book a meeting
+                      </button>
+                      <button
+                        disabled={busy}
+                        onClick={() => callback(activeRecord, activeLead)}
+                      >
+                        <Clock3 size={16} />
+                        Call later
+                      </button>
+                      <button
+                        disabled={busy}
+                        onClick={() =>
+                          void saveOutcome(
+                            activeRecord,
+                            activeLead,
+                            "NOT_QUALIFIED",
+                          )
+                        }
+                      >
+                        Not interested
+                      </button>
+                      <button
+                        disabled={busy}
+                        onClick={() =>
+                          void saveOutcome(
+                            activeRecord,
+                            activeLead,
+                            "NO_ANSWER",
+                          )
+                        }
+                      >
+                        No answer
+                      </button>
+                      <button
+                        disabled={busy}
+                        onClick={() =>
+                          void saveOutcome(
+                            activeRecord,
+                            activeLead,
+                            "DO_NOT_CALL",
+                          )
+                        }
+                      >
+                        Do not call
+                      </button>
+                    </>
                   )}
               </div>
             </section>
@@ -706,8 +810,8 @@ export default function CallerDashboard() {
           {!workspace ? (
             Object.keys(session).length ? (
               <Empty
-                title="No business assigned yet"
-                detail="Your administrator can assign a website from Call centre → Caller access."
+                title="Your calling queue is being assigned"
+                detail="Your administrator will assign the prospect queue. You’ll then see leads, calls and meetings here."
               />
             ) : (
               !error && <Loading />
@@ -720,10 +824,10 @@ export default function CallerDashboard() {
                 <>
                   <div className="caller-metrics">
                     {[
-                      ["My leads", totals.leads],
-                      ["Qualified prospects", totals.qualified],
+                      ["Ready to call", totals.ready],
                       ["Call outcomes logged", totals.callsLogged],
-                      ["Scheduled bookings", totals.bookings],
+                      ["Qualified prospects", totals.qualified],
+                      ["Meetings booked", totals.bookings],
                     ].map(([title, amount]) => (
                       <div className="surface" key={String(title)}>
                         <span>{String(title)}</span>
@@ -731,378 +835,236 @@ export default function CallerDashboard() {
                       </div>
                     ))}
                   </div>
-                  <section className="surface">
-                    <SectionHeading
-                      title="Your next conversation starts here"
-                      detail="All figures reflect saved activity in this business."
-                    />
-                    <div className="caller-actions">
-                      <button
-                        className="primary"
-                        onClick={() => setTab("leads")}
-                      >
-                        <Phone size={16} /> Work my leads
+                  <div className="caller-journey">
+                    <span>
+                      <b>1</b>Find ready leads
+                    </span>
+                    <ChevronRight size={15} />
+                    <span>
+                      <b>2</b>Call & qualify
+                    </span>
+                    <ChevronRight size={15} />
+                    <span>
+                      <b>3</b>Book a meeting
+                    </span>
+                  </div>
+                  <SectionHeading
+                    title="Your next prospect"
+                    action={
+                      <button onClick={() => setTab("leads")}>
+                        View calling queue <ArrowRight size={16} />
                       </button>
-                      <button onClick={() => editLead()}>
-                        <Plus size={16} /> Add lead
-                      </button>
-                      <button onClick={() => setTab("discover")}>
-                        Find prospects
-                      </button>
-                    </div>
+                    }
+                  />
+                  {next ? (
+                    leadCard(next)
+                  ) : (
+                    <section className="surface">
+                      <Empty
+                        title={
+                          running
+                            ? "Preparing your next conversations"
+                            : "Let’s find your next conversation"
+                        }
+                        detail={
+                          running
+                            ? "Public business research is in progress. Ready leads appear automatically when it finishes."
+                            : "Your queue focuses on restaurants and beauty businesses across Gauteng with no website listed."
+                        }
+                        action={
+                          <div className="caller-actions">
+                            <button
+                              className="primary"
+                              disabled={
+                                searching || !!running || !prospecting.enabled
+                              }
+                              onClick={() => void findMore()}
+                            >
+                              <Radar size={16} />
+                              {searching || running
+                                ? "Finding prospects…"
+                                : "Prepare my leads"}
+                            </button>
+                            <button onClick={() => addLead()}>
+                              <Plus size={15} />
+                              Add a prospect
+                            </button>
+                          </div>
+                        }
+                      />
+                    </section>
+                  )}
+                  <section className="surface caller-how-it-works">
+                    <h3>What happens after a good call?</h3>
+                    <p>
+                      Select <b>Interested — book a meeting</b>. Choose a time
+                      the prospect agreed to, add the contact’s name, and save.
+                      Concrete reserves the slot and notifies your administrator
+                      automatically.
+                    </p>
                     <p className="muted">
-                      Vodacom SIM calls open your phone dialler. Browser calling{" "}
-                      {object(data.voice).ready
-                        ? "is connected"
-                        : "needs a connected voice provider"}
-                      . Phone logs are recorded separately from
-                      provider-confirmed calls.
+                      No website listed means it is missing from the research
+                      source. Ask the business whether it already has one before
+                      you pitch.
                     </p>
                   </section>
-                  <SectionHeading title="Recent leads" />
-                  {leadList}
+                  {callbacks.length > 0 && (
+                    <section className="surface">
+                      <SectionHeading
+                        title="Your callbacks"
+                        action={
+                          <button
+                            onClick={() => {
+                              setFilter("CALLBACK");
+                              setTab("leads");
+                            }}
+                          >
+                            View callbacks
+                          </button>
+                        }
+                      />
+                      {callbacks.slice(0, 4).map((lead) => (
+                        <div className="caller-booking" key={text(lead.id)}>
+                          <div>
+                            <b>{text(lead.company)}</b>
+                            <p>{sastDate(lead.callbackAt)} SAST</p>
+                          </div>
+                          {callAction(lead)}
+                        </div>
+                      ))}
+                    </section>
+                  )}
                 </>
               )}
               {tab === "leads" && (
                 <>
-                  <div className="caller-toolbar">
-                    <input
-                      type="search"
-                      aria-label="Search my leads"
-                      placeholder="Search company, contact or phone…"
-                      value={search}
-                      onChange={(event) => setSearch(event.target.value)}
-                    />
-                    <button className="primary" onClick={() => editLead()}>
-                      <Plus size={16} /> Add lead
-                    </button>
-                  </div>
-                  {leadList}
-                </>
-              )}
-              {tab === "discover" && (
-                <>
                   <section className="surface">
                     <SectionHeading
-                      title="Search the web"
-                      detail="Look up businesses in Google Maps, then add the prospects you want to work with. This option works independently of the public directory and AI services."
+                      title="Find your next website opportunity"
+                      detail="Restaurants and beauty businesses in Gauteng. Research prepares public listings with a phone number and no website listed."
                     />
-                    <div className="caller-form">
+                    <div className="caller-research-toolbar">
                       <label>
-                        Business niche
-                        <input
-                          value={webNiche}
-                          onChange={(event) => setWebNiche(event.target.value)}
-                          placeholder="e.g. dental practices"
-                        />
+                        Business type
+                        <select
+                          aria-label="Business type filter"
+                          value={industry}
+                          onChange={(event) => setIndustry(event.target.value)}
+                        >
+                          <option value="ALL">Restaurants & beauty</option>
+                          <option value="Restaurants">Restaurants</option>
+                          <option value="Beauty">Beauty businesses</option>
+                        </select>
                       </label>
                       <label>
-                        City or province
-                        <input
-                          value={webCity}
-                          onChange={(event) => setWebCity(event.target.value)}
-                          placeholder="e.g. Johannesburg"
-                        />
-                      </label>
-                      <div className="caller-actions">
-                        {webNiche.trim() && webCity.trim() ? (
-                          <a
-                            className="button primary"
-                            href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(webNiche.trim() + " in " + webCity.trim())}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                          >
-                            Search Google Maps
-                          </a>
-                        ) : (
-                          <p className="muted">
-                            Enter a niche and city to open your search.
-                          </p>
-                        )}
-                        <button onClick={() => editLead()}>
-                          <Plus size={16} /> Add a prospect
-                        </button>
-                      </div>
-                    </div>
-                    <p className="muted">
-                      Search opens in a separate tab. Review the business’s
-                      contact details and source before adding it to Concrete.
-                    </p>
-                  </section>
-                  <section className="surface">
-                    <SectionHeading
-                      title="Find local prospects"
-                      detail="Search public business listings near a South African city centre. No AI credit or search API key is needed. Results are limited to 10 listings within 8 km."
-                    />
-                    <form
-                      className="caller-form"
-                      onSubmit={async (event) => {
-                        event.preventDefault();
-                        const fields = new FormData(event.currentTarget);
-                        setBusy(true);
-                        setError("");
-                        setDirectory(null);
-                        try {
-                          setDirectory(
-                            await api(
-                              `/api/platform/${workspace}/caller/directory`,
-                              "POST",
-                              {
-                                city: fields.get("city"),
-                                category: fields.get("category"),
-                              },
-                            ),
-                          );
-                        } catch (problem) {
-                          setError((problem as Error).message);
-                        } finally {
-                          setBusy(false);
-                        }
-                      }}
-                    >
-                      <label>
-                        Business category
-                        <select name="category">
-                          {[
-                            "Vehicle repair",
-                            "Restaurants",
-                            "Cafes",
-                            "Dentists",
-                            "Clinics",
-                            "Hairdressers",
-                            "Hotels",
-                            "Estate agents",
-                            "Car dealers",
-                            "Hardware stores",
-                          ].map((option) => (
+                        Area
+                        <select
+                          aria-label="Prospect area"
+                          value={city}
+                          onChange={(event) => setCity(event.target.value)}
+                        >
+                          <option>Gauteng</option>
+                          {prospectCities.map((option) => (
                             <option key={option}>{option}</option>
                           ))}
                         </select>
                       </label>
-                      <label>
-                        Search city
-                        <select name="city">
-                          {[
-                            "Johannesburg",
-                            "Sandton",
-                            "Pretoria",
-                            "Centurion",
-                            "Cape Town",
-                            "Durban",
-                            "Gqeberha",
-                            "Bloemfontein",
-                          ].map((option) => (
-                            <option key={option}>{option}</option>
-                          ))}
-                        </select>
-                      </label>
-                      <button className="primary" disabled={busy}>
-                        <Radar size={16} />
-                        {busy ? "Searching…" : "Search public directory"}
-                      </button>
-                    </form>
-                    <p className="muted">
-                      Public listings can be incomplete or outdated. Review each
-                      prospect before adding it. Listed contact details do not
-                      establish permission for outreach.{" "}
-                      <a
-                        href="https://www.openstreetmap.org/copyright"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                      >
-                        © OpenStreetMap contributors · ODbL
-                      </a>
-                      {" · "}
-                      <a
-                        href="https://overpass.private.coffee/#privacy-policy"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                      >
-                        Directory provider & privacy
-                      </a>
-                    </p>
-                    {directory && (
-                      <>
-                        <p>
-                          {rows(directory.results).length} listings ·{" "}
-                          {text(directory.city)} ·{" "}
-                          {date(directory.fetchedAt, true)}
-                        </p>
-                        {rows(directory.results).length ? (
-                          rows(directory.results).map((lead) => (
-                            <article
-                              className="caller-booking"
-                              key={text(lead.sourceUrl)}
-                            >
-                              <div>
-                                <h3>{text(lead.company)}</h3>
-                                <p>
-                                  {text(lead.phone, "No phone listed")} ·{" "}
-                                  {text(lead.location)}
-                                </p>
-                                <a
-                                  href={text(lead.sourceUrl)}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                >
-                                  View source listing
-                                </a>
-                              </div>
-                              <button
-                                disabled={
-                                  busy ||
-                                  leads.some(
-                                    (existing) =>
-                                      existing.sourceUrl === lead.sourceUrl,
-                                  )
-                                }
-                                onClick={() => {
-                                  setDialog({
-                                    title: "Review prospect before adding",
-                                    detail:
-                                      "Check that these public details describe the business you want to contact. Saving this lead does not grant email permission.",
-                                    fields: [
-                                      {
-                                        name: "company",
-                                        label: "Business name",
-                                        required: true,
-                                      },
-                                      { name: "phone", label: "Phone number" },
-                                      {
-                                        name: "email",
-                                        label: "Email address",
-                                        type: "email",
-                                      },
-                                      {
-                                        name: "website",
-                                        label: "Website",
-                                        type: "url",
-                                      },
-                                    ],
-                                    initial: lead,
-                                    submit: (fields) =>
-                                      action({
-                                        ...lead,
-                                        ...fields,
-                                        action: "add-lead",
-                                      }),
-                                  });
-                                }}
-                              >
-                                {" "}
-                                {leads.some(
-                                  (existing) =>
-                                    existing.sourceUrl === lead.sourceUrl,
-                                )
-                                  ? "Already added"
-                                  : "Review & add lead"}
-                              </button>
-                            </article>
-                          ))
-                        ) : (
-                          <p className="muted">
-                            No matching listings were returned in this area. Try
-                            another city/category, use website search below, or
-                            add a lead manually.
-                          </p>
-                        )}
-                      </>
-                    )}
-                  </section>
-                  <section className="surface">
-                    <SectionHeading
-                      title="Website research search"
-                      detail="Choose your target niche and city. Research results are saved as real prospects; contact permission is checked separately."
-                    />
-                    <form
-                      className="caller-form"
-                      onSubmit={(event) => {
-                        event.preventDefault();
-                        const fields = new FormData(event.currentTarget);
-                        void run({
-                          action: "discover",
-                          industry: fields.get("industry"),
-                          location: fields.get("location"),
-                          maxResults: Number(fields.get("maxResults")),
-                          permissionConfirmed: true,
-                        });
-                      }}
-                    >
-                      <label>
-                        Target niche
-                        <input
-                          name="industry"
-                          required
-                          minLength={2}
-                          placeholder="e.g. vehicle repair workshops"
-                        />
-                      </label>
-                      <label>
-                        City / province
-                        <input
-                          name="location"
-                          required
-                          minLength={2}
-                          placeholder="e.g. Johannesburg, South Africa"
-                        />
-                      </label>
-                      <label>
-                        Maximum results
-                        <input
-                          name="maxResults"
-                          type="number"
-                          min={1}
-                          max={10}
-                          defaultValue={5}
-                          required
-                        />
-                      </label>
-                      {!data.discoveryConfigured && (
-                        <p className="alert">
-                          Your administrator needs to approve this website’s
-                          business profile and connect its search provider
-                          before discovery can run. You can add and work real
-                          leads manually now.
-                        </p>
-                      )}
                       <button
                         className="primary"
-                        disabled={busy || !data.discoveryConfigured}
+                        disabled={
+                          searching || !!running || !prospecting.enabled
+                        }
+                        onClick={() => void findMore()}
                       >
                         <Radar size={16} />
-                        {busy ? "Queuing search…" : "Search for leads"}
+                        {searching || running
+                          ? "Finding prospects…"
+                          : "Find more leads"}
                       </button>
-                    </form>
-                  </section>
-                  <section className="surface">
-                    <h3>My search jobs</h3>
-                    {rows(data.jobs).length ? (
-                      rows(data.jobs).map((job) => (
-                        <div className="caller-history" key={text(job.id)}>
-                          <Badge value={job.status} />
-                          <span>{date(job.createdAt, true)}</span>
-                          {!!job.error && (
-                            <p className="error">{text(job.error)}</p>
-                          )}
-                        </div>
-                      ))
-                    ) : (
+                    </div>
+                    {running && (
+                      <p className="caller-research-status" role="status">
+                        <span className="caller-status-dot" />
+                        {running.status === "RUNNING"
+                          ? "Checking public business listings. New prospects will appear here automatically."
+                          : "Your search is queued. Research starts when the automation worker is online."}
+                      </p>
+                    )}
+                    {!running && searches[0]?.status === "COMPLETED" && (
+                      <p className="muted">{text(searches[0].summary)}</p>
+                    )}
+                    {!running && searches[0]?.status === "FAILED" && (
+                      <p className="muted">{text(searches[0].error)}</p>
+                    )}
+                    {!prospecting.enabled && (
                       <p className="muted">
-                        Your searches will appear here. The automation computer
-                        must be online for queued research.
+                        Your administrator is setting up automatic research.
+                        Existing prospects can still be worked here.
                       </p>
                     )}
                   </section>
+                  <div className="caller-toolbar">
+                    <div className="caller-filter-tabs">
+                      {[
+                        ["READY", "Ready leads"],
+                        ["CALLBACK", "Callbacks"],
+                        ["ALL", "All my leads"],
+                      ].map(([value, title]) => (
+                        <button
+                          key={value}
+                          className={filter === value ? "selected" : ""}
+                          aria-pressed={filter === value}
+                          onClick={() => setFilter(value)}
+                        >
+                          {title}
+                        </button>
+                      ))}
+                    </div>
+                    <input
+                      type="search"
+                      aria-label="Search my prospects"
+                      placeholder="Search business, phone or area…"
+                      value={query}
+                      onChange={(event) => setQuery(event.target.value)}
+                    />
+                    <button onClick={() => addLead()}>
+                      <Plus size={15} />
+                      Add prospect
+                    </button>
+                  </div>
+                  <p className="muted">
+                    {shown.length} prospects ·{" "}
+                    {filter === "READY"
+                      ? "A phone number is listed. Confirm the current details when you call."
+                      : "Only your assigned leads and the available queue are shown."}
+                  </p>
+                  <div className="caller-prospect-grid">
+                    {shown.map(leadCard)}
+                  </div>
+                  {!shown.length && (
+                    <Empty
+                      title={
+                        filter === "CALLBACK"
+                          ? "No callbacks scheduled"
+                          : "No matching prospects yet"
+                      }
+                      detail={
+                        filter === "CALLBACK"
+                          ? "Choose Call later after a conversation to set a reminder."
+                          : "Find more leads, change your filters, or add a prospect you already know."
+                      }
+                    />
+                  )}
                 </>
               )}
               {tab === "calls" && (
                 <section className="surface">
                   <SectionHeading
-                    title="My call history"
-                    detail="Phone activity is self-reported. Browser statuses and durations come from signed provider callbacks."
+                    title="Your conversations"
+                    detail="Record the actual call outcome. An interested prospect can move straight to meeting booking."
                     action={
                       <button onClick={() => setTab("leads")}>
-                        Choose a lead
+                        Find a business to call <ArrowRight size={15} />
                       </button>
                     }
                   />
@@ -1111,57 +1073,97 @@ export default function CallerDashboard() {
                       <table>
                         <thead>
                           <tr>
-                            <th>Prospect</th>
-                            <th>Call source</th>
-                            <th>Status / outcome</th>
-                            <th>Duration</th>
-                            <th>Action</th>
+                            <th>Business</th>
+                            <th>Phone</th>
+                            <th>Call / outcome</th>
+                            <th>Next step</th>
                           </tr>
                         </thead>
                         <tbody>
-                          {calls.map((call) => (
-                            <tr key={text(call.id)}>
-                              <td>
-                                <b>{text(object(call.lead).company)}</b>
-                                <small>
-                                  {text(call.toNumber)} ·{" "}
-                                  {date(call.createdAt, true)}
-                                </small>
-                              </td>
-                              <td>
-                                {call.mode === "PHONE"
-                                  ? "Phone · caller reported"
-                                  : "Browser · provider"}
-                              </td>
-                              <td>
-                                <Badge value={call.status} />
-                                <small>{label(call.outcome)}</small>
-                              </td>
-                              <td>
-                                {call.mode === "PHONE"
-                                  ? `${text(call.reportedDurationSeconds, "—")} sec (reported)`
-                                  : `${text(call.durationSeconds, "—")} sec`}
-                              </td>
-                              <td>
-                                <button
-                                  disabled={
-                                    call.mode === "BROWSER" &&
-                                    !finalStates.includes(text(call.status))
-                                  }
-                                  onClick={() => outcome(call)}
-                                >
-                                  Record outcome
-                                </button>
-                              </td>
-                            </tr>
-                          ))}
+                          {calls.map((call) => {
+                            const lead = leads.find(
+                              (item) => item.id === call.leadId,
+                            );
+                            return (
+                              <tr key={text(call.id)}>
+                                <td>
+                                  <b>{text(object(call.lead).company)}</b>
+                                  <small>{date(call.createdAt, true)}</small>
+                                </td>
+                                <td>
+                                  {text(call.toNumber)}
+                                  <small>
+                                    {call.mode === "PHONE"
+                                      ? "Phone · caller reported"
+                                      : "Browser · provider status"}
+                                  </small>
+                                </td>
+                                <td>
+                                  <Badge value={call.status} />
+                                  <small>
+                                    {call.outcome === "UNRECORDED"
+                                      ? "Outcome pending"
+                                      : label(call.outcome)}
+                                  </small>
+                                </td>
+                                <td>
+                                  {call.outcome === "QUALIFIED" && lead ? (
+                                    <button
+                                      onClick={() =>
+                                        setMeeting({
+                                          lead,
+                                          callId: text(call.id),
+                                        })
+                                      }
+                                    >
+                                      <CalendarDays size={15} />
+                                      Book meeting
+                                    </button>
+                                  ) : call.outcome === "UNRECORDED" &&
+                                    (call.mode === "PHONE" ||
+                                      terminal.includes(text(call.status))) ? (
+                                    <button
+                                      disabled={!!active}
+                                      onClick={() => {
+                                        setActive({
+                                          callId: call.id,
+                                          toNumber: call.toNumber,
+                                          mode: call.mode,
+                                        });
+                                        setNotes(text(call.notes, ""));
+                                        setCallState("Disconnected");
+                                      }}
+                                    >
+                                      Record outcome
+                                    </button>
+                                  ) : (
+                                    <span className="muted">
+                                      {call.outcome === "CALLBACK" ||
+                                      call.outcome === "NO_ANSWER"
+                                        ? "Follow up from your callback list"
+                                        : "Saved"}
+                                    </span>
+                                  )}
+                                </td>
+                              </tr>
+                            );
+                          })}
                         </tbody>
                       </table>
                     </div>
                   ) : (
                     <Empty
-                      title="No calls logged yet"
-                      detail="Choose a real prospect from My leads to start a phone handoff or browser call."
+                      title="Your first conversation starts with a lead"
+                      detail="Open Find leads and select Call now. After the call, choose what happened and book a meeting if they’re interested."
+                      action={
+                        <button
+                          className="primary"
+                          onClick={() => setTab("leads")}
+                        >
+                          <Phone size={16} />
+                          Find a lead to call
+                        </button>
+                      }
                     />
                   )}
                 </section>
@@ -1170,12 +1172,7 @@ export default function CallerDashboard() {
                 <section className="surface">
                   <SectionHeading
                     title="Meetings you arranged"
-                    detail="Download a calendar invitation to share the meeting. Booking a slot does not send an email automatically."
-                    action={
-                      <button onClick={() => setTab("leads")}>
-                        Book from a lead
-                      </button>
-                    }
+                    detail="Your administrator is notified automatically when you book or update a meeting. All times below are South African time (SAST)."
                   />
                   {bookings.length ? (
                     bookings.map((booking) => (
@@ -1184,19 +1181,18 @@ export default function CallerDashboard() {
                         key={text(booking.id)}
                       >
                         <div>
-                          <h3>{text(booking.title)}</h3>
+                          <p className="eyebrow">CONCRETE CONSULTATION</p>
+                          <h3>{text(object(booking.lead).company)}</h3>
                           <p>
-                            {date(booking.startAt, true)} –{" "}
-                            {date(booking.endAt, true)} ·{" "}
-                            {text(booking.timezone)}
+                            <CalendarDays size={15} />{" "}
+                            {sastDate(booking.startAt)} SAST
                           </p>
                           <p>
-                            {text(object(booking.lead).company)} · Host:{" "}
                             {text(
-                              rows(data.hosts).find(
-                                (host) => host.id === booking.hostId,
-                              )?.name,
-                            )}
+                              object(booking.lead).name,
+                              "Business contact",
+                            )}{" "}
+                            · 30 minutes
                           </p>
                           <Badge value={booking.status} />
                         </div>
@@ -1205,12 +1201,12 @@ export default function CallerDashboard() {
                             className="button"
                             href={`/api/platform/${workspace}/caller/bookings/${booking.id}/calendar`}
                           >
-                            Download calendar
+                            Download invitation
                           </a>
                           {(booking.bookedById === user.id ||
                             Boolean(user.agencyAdmin)) && (
                             <button onClick={() => updateBooking(booking)}>
-                              Update / reschedule
+                              Update meeting
                             </button>
                           )}
                         </div>
@@ -1218,123 +1214,15 @@ export default function CallerDashboard() {
                     ))
                   ) : (
                     <Empty
-                      title="Your bookings will appear here"
-                      detail="After qualifying a lead, select Book meeting and choose a host and a time."
-                    />
-                  )}
-                </section>
-              )}
-              {tab === "outreach" && (
-                <section className="surface">
-                  <SectionHeading
-                    title="Email outreach"
-                    detail="Campaigns and email sending are managed together here."
-                    action={
-                      <button
-                        className="primary"
-                        disabled={!data.canSend}
-                        onClick={() => setCompose(true)}
-                      >
-                        <Send size={16} /> Create and send
-                      </button>
-                    }
-                  />
-                  {!data.canSend && (
-                    <p className="alert">
-                      Your administrator has not enabled email sending for this
-                      business.
-                    </p>
-                  )}
-                  {Boolean(data.canSend) &&
-                    (!object(data.sending).enabled ||
-                      !object(data.sending).profileApproved ||
-                      !rows(data.mailboxes).some(
-                        (account) => account.status === "LIVE_ENABLED",
-                      )) && (
-                      <p className="alert">
-                        Email sending needs an approved website profile, the
-                        business’s authorised sending mailbox, verified
-                        recipients and enabled sending. You can compose and
-                        preview while your administrator completes setup.
-                      </p>
-                    )}
-                  {rows(data.campaigns).map((campaign) => (
-                    <article className="caller-history" key={text(campaign.id)}>
-                      <b>{text(campaign.name)}</b>
-                      <Badge value={campaign.status} />
-                      <span>
-                        {number(object(campaign._count).recipients)} recipients
-                      </span>
-                      {["RUNNING", "APPROVED"].includes(
-                        text(campaign.status),
-                      ) && (
-                        <button
-                          disabled={busy}
-                          onClick={async () => {
-                            setBusy(true);
-                            try {
-                              await api(
-                                `/api/platform/${workspace}/caller/campaigns`,
-                                "POST",
-                                {
-                                  action: "pause",
-                                  id: campaign.id,
-                                  requestId: crypto.randomUUID(),
-                                },
-                              );
-                              await refresh();
-                            } catch (problem) {
-                              setError((problem as Error).message);
-                            } finally {
-                              setBusy(false);
-                            }
-                          }}
-                        >
-                          Pause
+                      title="Your booked meetings will appear here"
+                      detail="After an interested call, choose Interested — book a meeting, select an agreed time and save. Concrete takes care of the admin notification."
+                      action={
+                        <button onClick={() => setTab("leads")}>
+                          Open my calling queue
                         </button>
-                      )}
-                    </article>
-                  ))}
-                  {!rows(data.campaigns).length && (
-                    <Empty
-                      title="No outreach campaigns yet"
-                      detail="Create a campaign, review the sender, recipients and messages, then send when setup is ready."
-                    />
-                  )}
-                </section>
-              )}
-              {tab === "website" && (
-                <section className="surface">
-                  <SectionHeading
-                    title={text(business.name)}
-                    detail="The business assigned to you. Website analysis and provider connections are managed by your administrator."
-                  />
-                  <a
-                    href={text(business.websiteUrl)}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
-                    {text(business.websiteUrl)}
-                  </a>
-                  <p>
-                    Business profile:{" "}
-                    <Badge
-                      value={
-                        business.profileApproved ? "APPROVED" : "SETUP_REQUIRED"
                       }
                     />
-                  </p>
-                  <p>
-                    {text(
-                      business.targetCriteria,
-                      "Your administrator has not set the target customer profile yet.",
-                    )}
-                  </p>
-                  <p className="muted">
-                    Connecting a website records its business context. Visitor
-                    tracking requires a separate website installation; this
-                    dashboard does not invent visitor activity.
-                  </p>
+                  )}
                 </section>
               )}
             </>
@@ -1342,29 +1230,13 @@ export default function CallerDashboard() {
         </main>
       </div>
       {dialog && <ActionDialog dialog={dialog} close={() => setDialog(null)} />}
-      {compose && (
-        <CampaignComposer
-          organization={{
-            workspaceId: workspace,
-            name: text(business.name),
-            role: "CALLER",
-          }}
-          accounts={rows(data.mailboxes)}
-          leads={leads}
-          sending={object(data.sending)}
-          endpoint={`/api/platform/${workspace}/caller/campaigns`}
-          setupPath="/caller"
-          act={async (_resource, input) => {
-            const result = await api(
-              `/api/platform/${workspace}/caller/campaigns`,
-              "POST",
-              input,
-            );
-            setNotice(text(result.message, "Campaign launched."));
-            await refresh();
-            return result;
-          }}
-          close={() => setCompose(false)}
+      {meeting && (
+        <CallerMeeting
+          workspaceId={workspace}
+          lead={meeting.lead}
+          callId={meeting.callId}
+          act={act}
+          close={() => setMeeting(null)}
         />
       )}
     </div>

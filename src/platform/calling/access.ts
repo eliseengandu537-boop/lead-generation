@@ -15,13 +15,10 @@ export async function callerAccess(workspaceId: string) {
   });
   if (!organization || organization.onboardingStatus === "DEMO")
     throw new HttpError(403, "Choose an active real business.");
-  const membership = await controlDb.membership.findUnique({
-    where: { workspaceId_userId: { workspaceId, userId: access.user.id } },
-  });
   return {
     ...access,
     organization,
-    canSend: access.user.agencyAdmin || Boolean(membership?.callerCanSend),
+    canSend: access.user.agencyAdmin,
   };
 }
 
@@ -57,14 +54,17 @@ export async function callerSession() {
   });
   return {
     user,
-    businesses: businesses.map((business) => ({
+    businesses: businesses.map((business, index) => ({
       workspaceId: business.workspaceId,
-      name: business.workspace.name,
+      name: user.agencyAdmin
+        ? business.workspace.name
+        : businesses.length > 1
+          ? `Concrete queue ${index + 1}`
+          : "Concrete",
       timezone: business.workspace.timezone,
-      websiteUrl: business.websiteUrl,
-      canSend:
-        user.agencyAdmin ||
-        Boolean(business.workspace.memberships[0]?.callerCanSend),
+      ...(user.agencyAdmin
+        ? { websiteUrl: business.websiteUrl, canSend: true }
+        : {}),
     })),
   };
 }

@@ -104,6 +104,8 @@ model PlatformOrganization {
   bookings              PlatformBooking[]
   callEvents            PlatformCallEvent[]
   voiceProvider         PlatformVoiceProvider?
+  prospectingConfig     PlatformProspectingConfig?
+  prospectSearches      PlatformProspectSearch[]
 }
 
 model PlatformLead {
@@ -116,6 +118,11 @@ model PlatformLead {
   industry                 String                      @default("")
   location                 String                      @default("")
   website                  String                      @default("")
+  websitePresence          String                      @default("UNCHECKED")
+  websiteCheckedAt         DateTime?
+  websiteEvidence          Json                        @default("{}")
+  sourceRecordId           String?
+  callbackAt               DateTime?
   sourceUrl                String                      @default("")
   sourceKind               String                      @default("MANUAL")
   contactRole              String                      @default("")
@@ -152,7 +159,51 @@ model PlatformLead {
 
   @@unique([workspaceId, id])
   @@unique([workspaceId, email])
+  @@unique([workspaceId, sourceRecordId])
   @@index([workspaceId, status])
+}
+
+model PlatformProspectingConfig {
+  businessId       String               @id
+  enabled          Boolean              @default(false)
+  categories       Json                 @default("[\"Restaurants\",\"Beauty\"]")
+  cities           Json                 @default("[\"Johannesburg\",\"Pretoria\",\"Sandton\",\"Centurion\",\"Midrand\",\"Benoni\",\"Boksburg\",\"Roodepoort\"]")
+  dailyLimit       Int                  @default(30)
+  maxQueue         Int                  @default(150)
+  meetingHostId    String?
+  notifyAdminEmail Boolean              @default(true)
+  nextRunAt        DateTime             @default(now())
+  lastRunAt        DateTime?
+  lastStatus       String               @default("NOT_STARTED")
+  lastError        String?
+  updatedBy        String?
+  updatedAt        DateTime             @updatedAt
+  organization     PlatformOrganization @relation(fields: [businessId], references: [workspaceId], onDelete: Cascade)
+}
+
+model PlatformProspectSearch {
+  id             String               @id @default(cuid())
+  workspaceId    String
+  actorId        String?
+  idempotencyKey String
+  industry       String               @default("ALL")
+  city           String               @default("Gauteng")
+  status         String               @default("QUEUED")
+  attempts       Int                  @default(0)
+  leaseUntil     DateTime?
+  added          Int                  @default(0)
+  checked        Int                  @default(0)
+  summary        String               @default("")
+  error          String?
+  createdAt      DateTime             @default(now())
+  startedAt      DateTime?
+  completedAt    DateTime?
+  organization   PlatformOrganization @relation(fields: [workspaceId], references: [workspaceId], onDelete: Cascade)
+
+  @@unique([workspaceId, id])
+  @@unique([workspaceId, idempotencyKey])
+  @@index([status, createdAt])
+  @@index([workspaceId, createdAt])
 }
 
 model PlatformCampaign {

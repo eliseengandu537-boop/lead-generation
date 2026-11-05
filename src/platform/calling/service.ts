@@ -14,6 +14,8 @@ import {
   terminalCallStatuses,
 } from "./rules";
 import { browserCallToken } from "./voice";
+import { meetingHost, notifyBooking } from "./bookings";
+import { readyLeadWhere } from "./prospecting";
 
 const leadInput = z.object({
   company: z.string().trim().min(1).max(240),
@@ -56,6 +58,7 @@ const actionInput = z.discriminatedUnion("action", [
         "UNREVIEWED",
       ]),
       notes: z.string().trim().min(3).max(5000),
+      callbackAt: z.iso.datetime().optional(),
       requestId: z.uuid(),
     })
     .strict(),
@@ -73,6 +76,7 @@ const actionInput = z.discriminatedUnion("action", [
       id: z.string().min(1),
       outcome: z.enum(outcomes),
       notes: z.string().trim().max(5000).default(""),
+      callbackAt: z.iso.datetime().optional(),
       reportedDurationSeconds: z.number().int().min(0).max(21600).optional(),
       requestId: z.uuid(),
     })
@@ -142,33 +146,39 @@ export async function readCallerWorkspace(workspaceId: string) {
       orderBy: { startAt: "desc" },
       take: 200,
     }),
-    bookingHosts(workspaceId),
+    user.agencyAdmin ? bookingHosts(workspaceId) : Promise.resolve([]),
     controlDb.platformVoiceProvider.findUnique({
       where: { businessId: workspaceId },
       select: { enabled: true, provider: true, fromNumber: true },
     }),
-    db.platformJob.findMany({
-      where: { actorId: user.id, kind: "DISCOVER" },
-      select: {
-        id: true,
-        kind: true,
-        status: true,
-        error: true,
-        result: true,
-        createdAt: true,
-      },
-      orderBy: { createdAt: "desc" },
-      take: 10,
-    }),
-    db.platformCampaign.findMany({
-      where: user.agencyAdmin ? {} : { createdById: user.id },
-      orderBy: { createdAt: "desc" },
-      take: 100,
-      include: { _count: { select: { recipients: true } } },
-    }),
-    db.platformMailbox.findMany({
-      select: { id: true, email: true, provider: true, status: true },
-    }),
+    user.agencyAdmin
+      ? db.platformJob.findMany({
+          where: { actorId: user.id, kind: "DISCOVER" },
+          select: {
+            id: true,
+            kind: true,
+            status: true,
+            error: true,
+            result: true,
+            createdAt: true,
+          },
+          orderBy: { createdAt: "desc" },
+          take: 10,
+        })
+      : Promise.resolve([]),
+    user.agencyAdmin
+      ? db.platformCampaign.findMany({
+          where: user.agencyAdmin ? {} : { createdById: user.id },
+          orderBy: { createdAt: "desc" },
+          take: 100,
+          include: { _count: { select: { recipients: true } } },
+        })
+      : Promise.resolve([]),
+    user.agencyAdmin
+      ? db.platformMailbox.findMany({
+          select: { id: true, email: true, provider: true, status: true },
+        })
+      : Promise.resolve([]),
     Promise.all([
       db.platformLead.count({
         where: { ...owned, status: { not: "ARCHIVED" } },
@@ -194,15 +204,50 @@ export async function readCallerWorkspace(workspaceId: string) {
       }),
     ]),
   ]);
+  const [prospectConfig, prospectSearches, readyCount] = await Promise.all([
+    controlDb.platformProspectingConfig.findUnique({
+      where: { businessId: workspaceId },
+      select: {
+        enabled: true,
+        lastRunAt: true,
+        lastStatus: true,
+        categories: true,
+        cities: true,
+      },
+    }),
+    db.platformProspectSearch.findMany({
+      where: user.agencyAdmin
+        ? {}
+        : { OR: [{ actorId: user.id }, { actorId: null }] },
+      select: {
+        id: true,
+        status: true,
+        industry: true,
+        city: true,
+        added: true,
+        summary: true,
+        error: true,
+        createdAt: true,
+        completedAt: true,
+      },
+      orderBy: { createdAt: "desc" },
+      take: 8,
+    }),
+    db.platformLead.count({ where: { ...readyLeadWhere, ...owned } }),
+  ]);
   return {
     user,
     business: {
       workspaceId,
-      name: workspace.name,
+      name: user.agencyAdmin ? workspace.name : "Concrete",
       timezone: workspace.timezone,
-      websiteUrl: organization.websiteUrl,
-      targetCriteria: organization.targetCriteria,
-      profileApproved: Boolean(organization.profileApprovedAt),
+      ...(user.agencyAdmin
+        ? {
+            websiteUrl: organization.websiteUrl,
+            targetCriteria: organization.targetCriteria,
+            profileApproved: Boolean(organization.profileApprovedAt),
+          }
+        : {}),
     },
     canSend,
     voice: {
@@ -210,15 +255,20 @@ export async function readCallerWorkspace(workspaceId: string) {
       provider: provider?.provider || null,
       fromNumber: provider?.fromNumber || null,
     },
-    discoveryConfigured: Boolean(
-      organization.encryptedSearchKey && organization.profileApprovedAt,
-    ),
-    sending: {
-      enabled: process.env.LIVE_EMAIL_ENABLED === "true",
-      profileApproved: Boolean(organization.profileApprovedAt),
-    },
+    ...(user.agencyAdmin
+      ? {
+          discoveryConfigured: Boolean(
+            organization.encryptedSearchKey && organization.profileApprovedAt,
+          ),
+          sending: {
+            enabled: process.env.LIVE_EMAIL_ENABLED === "true",
+            profileApproved: Boolean(organization.profileApprovedAt),
+          },
+        }
+      : {}),
     totals: {
       leads: totals[0],
+      ready: readyCount,
       qualified: totals[1],
       callsLogged: totals[2],
       bookings: totals[3],
@@ -232,10 +282,18 @@ export async function readCallerWorkspace(workspaceId: string) {
       },
     ),
     bookings,
-    hosts,
-    jobs,
-    campaigns,
-    mailboxes,
+    hosts: user.agencyAdmin ? hosts : [],
+    jobs: user.agencyAdmin ? jobs : [],
+    campaigns: user.agencyAdmin ? campaigns : [],
+    mailboxes: user.agencyAdmin ? mailboxes : [],
+    prospecting: {
+      enabled: Boolean(prospectConfig?.enabled),
+      lastRunAt: prospectConfig?.lastRunAt || null,
+      status: prospectConfig?.lastStatus || "NOT_STARTED",
+      categories: prospectConfig?.categories || ["Restaurants", "Beauty"],
+      cities: prospectConfig?.cities || [],
+      searches: prospectSearches,
+    },
   };
 }
 
@@ -387,6 +445,16 @@ export async function callerAction(workspaceId: string, raw: unknown) {
       result = { id: lead.id, message: "Lead assigned to you." };
     } else if (input.action === "qualify") {
       await scopedLead(tx, workspaceId, input.id, user, true);
+      if (
+        input.qualification === "CALLBACK" &&
+        (!input.callbackAt ||
+          new Date(input.callbackAt) <= new Date() ||
+          new Date(input.callbackAt).getTime() > Date.now() + 90 * 86400000)
+      )
+        throw new HttpError(
+          400,
+          "Choose a callback time within the next 90 days.",
+        );
       await tx.platformLead.update({
         where: { workspaceId_id: { workspaceId, id: input.id } },
         data: {
@@ -394,6 +462,10 @@ export async function callerAction(workspaceId: string, raw: unknown) {
           salesQualificationNotes: input.notes,
           salesQualifiedBy: user.id,
           salesQualifiedAt: new Date(),
+          callbackAt:
+            input.qualification === "CALLBACK" && input.callbackAt
+              ? new Date(input.callbackAt)
+              : null,
         },
       });
       result = {
@@ -401,6 +473,8 @@ export async function callerAction(workspaceId: string, raw: unknown) {
           "Your sales qualification has been saved. This does not grant permission to email the lead.",
       };
     } else if (input.action === "discover") {
+      if (!user.agencyAdmin)
+        throw new HttpError(403, "Use Find leads in your calling workspace.");
       if (
         !organization.profileApprovedAt ||
         !organization.targetCriteria ||
@@ -507,6 +581,16 @@ export async function callerAction(workspaceId: string, raw: unknown) {
             "Unstarted browser call canceled. Provider-confirmed calls keep their recorded status.",
         };
       } else {
+        if (
+          input.outcome === "CALLBACK" &&
+          (!input.callbackAt ||
+            new Date(input.callbackAt) <= new Date() ||
+            new Date(input.callbackAt).getTime() > Date.now() + 90 * 86400000)
+        )
+          throw new HttpError(
+            400,
+            "Choose a callback time within the next 90 days.",
+          );
         if (call.mode === "BROWSER" && !terminalCallStatuses.has(call.status))
           throw new HttpError(
             409,
@@ -532,6 +616,28 @@ export async function callerAction(workspaceId: string, raw: unknown) {
             where: { workspaceId_id: { workspaceId, id: call.leadId } },
             data: { doNotCall: true },
           });
+        if (
+          ["QUALIFIED", "NOT_QUALIFIED", "CALLBACK", "NO_ANSWER"].includes(
+            input.outcome,
+          )
+        )
+          await tx.platformLead.update({
+            where: { workspaceId_id: { workspaceId, id: call.leadId } },
+            data: {
+              salesQualification:
+                input.outcome === "NO_ANSWER" ? "CALLBACK" : input.outcome,
+              salesQualificationNotes:
+                input.notes ||
+                (input.outcome === "QUALIFIED"
+                  ? "Interested in a website consultation."
+                  : "Follow up based on the recorded conversation."),
+              salesQualifiedBy: user.id,
+              salesQualifiedAt: new Date(),
+              callbackAt: ["CALLBACK", "NO_ANSWER"].includes(input.outcome)
+                ? new Date(input.callbackAt || Date.now() + 86400000)
+                : null,
+            },
+          });
         result = {
           message:
             call.mode === "PHONE"
@@ -541,13 +647,20 @@ export async function callerAction(workspaceId: string, raw: unknown) {
       }
     } else if (input.action === "book") {
       const lead = await scopedLead(tx, workspaceId, input.leadId, user, true);
+      const assignedHost = await meetingHost(workspaceId, tx);
+      const hostId = input.hostId || assignedHost.id;
+      if (!user.agencyAdmin && hostId !== assignedHost.id)
+        throw new HttpError(
+          400,
+          "Bookings are assigned to the Concrete meeting team automatically.",
+        );
       const startAt = new Date(input.startAt),
         endAt = new Date(input.endAt);
       validateBookingWindow(startAt, endAt, input.timezone);
       if (
         !(await tx.user.findFirst({
           where: {
-            id: input.hostId,
+            id: hostId,
             disabledAt: null,
             OR: [
               { agencyAdmin: true },
@@ -579,11 +692,11 @@ export async function callerAction(workspaceId: string, raw: unknown) {
           400,
           "The selected call does not belong to this lead and caller.",
         );
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${"booking-host:" + input.hostId}))`;
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${"booking-host:" + hostId}))`;
       if (
         await tx.platformBooking.findFirst({
           where: {
-            hostId: input.hostId,
+            hostId,
             status: "SCHEDULED",
             startAt: { lt: endAt },
             endAt: { gt: startAt },
@@ -601,7 +714,7 @@ export async function callerAction(workspaceId: string, raw: unknown) {
           leadId: lead.id,
           callId: input.callId,
           bookedById: user.id,
-          hostId: input.hostId,
+          hostId,
           title: input.title,
           startAt,
           endAt,
@@ -613,10 +726,11 @@ export async function callerAction(workspaceId: string, raw: unknown) {
           requestHash,
         },
       });
+      await notifyBooking(tx, created, user.name, lead.company, "BOOKED");
       result = {
         id: created.id,
         message:
-          "Booking saved in Concrete. Download its calendar invitation to share it; no email has been sent automatically.",
+          "Meeting booked. Your administrator has been notified in Concrete. You can download a calendar invitation to share with the prospect.",
       };
     } else {
       const current = await tx.platformBooking.findFirst({
@@ -653,7 +767,7 @@ export async function callerAction(workspaceId: string, raw: unknown) {
             "The host already has a booking at that time.",
           );
       }
-      await tx.platformBooking.update({
+      const updated = await tx.platformBooking.update({
         where: { id: current.id },
         data: {
           status: input.status,
@@ -662,9 +776,14 @@ export async function callerAction(workspaceId: string, raw: unknown) {
           version: { increment: 1 },
         },
       });
+      const lead = await tx.platformLead.findUniqueOrThrow({
+        where: { workspaceId_id: { workspaceId, id: current.leadId } },
+        select: { company: true },
+      });
+      await notifyBooking(tx, updated, user.name, lead.company, "UPDATED");
       result = {
         message:
-          "Booking updated. Download a fresh calendar file if you need to share the change.",
+          "Meeting updated and your administrator notified. Download a fresh calendar file to share the change.",
       };
     }
     await tx.platformActivity.create({

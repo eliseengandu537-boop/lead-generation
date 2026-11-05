@@ -4,13 +4,14 @@ import { z } from "zod";
 import { controlDb } from "@/lib/db";
 import { currentUser, HttpError, rateLimit } from "@/lib/auth";
 import { connectVoice, voiceUrls } from "./voice";
+import { saveProspectingConfiguration } from "./prospecting";
 
 const assignments = z
   .array(
     z
       .object({
         workspaceId: z.string().min(1).max(100),
-        canSend: z.boolean().default(false),
+        canSend: z.literal(false).default(false),
       })
       .strict(),
   )
@@ -220,6 +221,22 @@ export async function callCentreRead(query = new URLSearchParams()) {
         .reduce((sum, row) => sum + row._count._all, 0),
     };
   });
+  const [prospecting, prospectSearches, meetingHosts] = await Promise.all([
+    controlDb.platformProspectingConfig.findMany(),
+    controlDb.platformProspectSearch.findMany({
+      where: {
+        ...(workspaceId ? { workspaceId } : {}),
+        createdAt: { gte: since },
+      },
+      orderBy: { createdAt: "desc" },
+      take: 20,
+    }),
+    controlDb.user.findMany({
+      where: { agencyAdmin: true, disabledAt: null },
+      select: { id: true, name: true, email: true },
+      orderBy: { email: "asc" },
+    }),
+  ]);
   return {
     days,
     since,
@@ -230,10 +247,15 @@ export async function callCentreRead(query = new URLSearchParams()) {
       voice:
         voice.find((item) => item.businessId === business.workspaceId) || null,
       webhooks: voiceUrls(business.workspaceId),
+      prospecting:
+        prospecting.find((item) => item.businessId === business.workspaceId) ||
+        null,
     })),
     callers: performance,
     calls,
     bookings,
+    prospectSearches,
+    meetingHosts,
     totals: {
       phoneLogs: performance.reduce((sum, row) => sum + row.phoneLogs, 0),
       browserAttempts: performance.reduce(
@@ -256,6 +278,11 @@ export async function callCentreWrite(raw: unknown) {
   if (!admin.agencyAdmin)
     throw new HttpError(403, "Platform administrator required.");
   await rateLimit(`call-centre-admin:${admin.id}`, 60, 60);
+  if (
+    z.object({ action: z.string() }).parse(raw).action ===
+    "configure-prospecting"
+  )
+    return saveProspectingConfiguration(admin.id, raw);
   if (z.object({ action: z.string() }).parse(raw).action === "connect-voice")
     return connectVoice(admin.id, raw);
   const input = callerAdminInput.parse(raw);

@@ -1,5 +1,6 @@
 import { workerTick } from "./platform/worker";
 import { sendIdentityEmails } from "./lib/identity";
+import { prospectingTick } from "./platform/calling/prospecting";
 import { db, assertTenantDatabase } from "./lib/db";
 import { setTimeout as pause } from "node:timers/promises";
 let stopping = false;
@@ -18,12 +19,13 @@ async function main() {
     throw new Error("WORKER_POLL_MS must be between 3000 and 900000");
   await assertTenantDatabase();
   console.log(
-    "Concrete worker started. Provider work requires authenticated n8n admission; real email also requires explicit client approval.",
+    "Concrete worker started. Public prospecting and admin account emails run directly. Other provider jobs require n8n admission; campaign sending requires client approval.",
   );
   while (!stopping) {
     try {
       await workerTick();
       await sendIdentityEmails();
+      await prospectingTick();
     } catch (error) {
       console.error(
         error instanceof Error ? error.message : "Worker cycle failed",

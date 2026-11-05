@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
 import { Download, Phone, Plus, RefreshCw, X } from "lucide-react";
+import { prospectCities } from "@/platform/calling/prospect-options";
 import {
   api,
   date,
@@ -52,30 +53,20 @@ export default function CallCentre() {
   }
   function callerForm(caller?: RecordValue) {
     const memberships = rows(caller?.memberships);
-    const assignmentFields: Field[] = businesses.flatMap((business, index) => [
-      {
-        name: `business${index}`,
-        label: `Assign ${text(business.name)}`,
-        type: "checkbox",
-        value: memberships.some(
-          (row) => row.workspaceId === business.workspaceId,
-        ),
-      },
-      {
-        name: `send${index}`,
-        label: `Allow email campaigns for ${text(business.name)}`,
-        type: "checkbox",
-        value:
-          memberships.find((row) => row.workspaceId === business.workspaceId)
-            ?.callerCanSend || false,
-      },
-    ]);
+    const assignmentFields: Field[] = businesses.map((business, index) => ({
+      name: `business${index}`,
+      label: `Assign ${text(business.name)}`,
+      type: "checkbox",
+      value: memberships.some(
+        (row) => row.workspaceId === business.workspaceId,
+      ),
+    }));
     setDialog({
       title: caller
         ? `Business access · ${text(caller.name)}`
         : "Create caller login",
       detail:
-        "Callers see only assigned businesses and their own or unassigned leads. Email sending needs its own permission and a connected business mailbox.",
+        "Callers get a Concrete calling queue, call outcomes and meeting bookings. Connected websites and email outreach stay in your admin dashboard.",
       fields: [
         ...(!caller
           ? [
@@ -101,11 +92,101 @@ export default function CallCentre() {
               ? [
                   {
                     workspaceId: business.workspaceId,
-                    canSend: Boolean(fields[`send${index}`]),
+                    canSend: false,
                   },
                 ]
               : [],
           ),
+        }),
+    });
+  }
+  function configureProspecting(business: RecordValue) {
+    const config = object(business.prospecting);
+    const categories = Array.isArray(config.categories)
+      ? config.categories
+      : ["Restaurants", "Beauty"];
+    const cities = Array.isArray(config.cities)
+      ? config.cities
+      : [...prospectCities];
+    setDialog({
+      title: `Automatic leads · ${text(business.name)}`,
+      detail:
+        "Prepare business listings with phone numbers and no website listed. The local automation computer must stay online. A missing website in a listing must be confirmed with the owner. Daily and queue limits prevent repeated imports.",
+      submitLabel: "Save automatic lead settings",
+      fields: [
+        {
+          name: "enabled",
+          label: "Automatically prepare calling leads",
+          type: "checkbox",
+          value: Boolean(config.enabled),
+        },
+        {
+          name: "restaurants",
+          label: "Restaurants",
+          type: "checkbox",
+          value: categories.includes("Restaurants"),
+        },
+        {
+          name: "beauty",
+          label: "Beauty businesses",
+          type: "checkbox",
+          value: categories.includes("Beauty"),
+        },
+        ...prospectCities.map((city, index) => ({
+          name: `city${index}`,
+          label: city,
+          type: "checkbox" as const,
+          value: cities.includes(city),
+        })),
+        {
+          name: "dailyLimit",
+          label: "Maximum new leads per day (1–50)",
+          type: "number",
+          required: true,
+          value: config.dailyLimit || 30,
+        },
+        {
+          name: "maxQueue",
+          label: "Maximum ready leads (10–250)",
+          type: "number",
+          required: true,
+          value: config.maxQueue || 150,
+        },
+        {
+          name: "meetingHostId",
+          label: "Meeting host",
+          type: "select",
+          required: true,
+          value: config.meetingHostId || rows(data.meetingHosts)[0]?.id,
+          options: rows(data.meetingHosts).map((host) => ({
+            value: text(host.id),
+            label: `${text(host.name)} · ${text(host.email)}`,
+          })),
+        },
+        {
+          name: "notifyAdminEmail",
+          label:
+            "Also email administrators when a meeting is booked or updated",
+          type: "checkbox",
+          value: config.notifyAdminEmail !== false,
+        },
+      ],
+      submit: (fields) =>
+        act({
+          action: "configure-prospecting",
+          workspaceId: business.workspaceId,
+          enabled: Boolean(fields.enabled),
+          categories: [
+            fields.restaurants ? "Restaurants" : "",
+            fields.beauty ? "Beauty" : "",
+          ].filter(Boolean),
+          cities: prospectCities.filter(
+            (_city, index) => fields[`city${index}`],
+          ),
+          dailyLimit: Number(fields.dailyLimit),
+          maxQueue: Number(fields.maxQueue),
+          meetingHostId: fields.meetingHostId,
+          notifyAdminEmail: Boolean(fields.notifyAdminEmail),
         }),
     });
   }
@@ -318,7 +399,6 @@ export default function CallCentre() {
                           {rows(caller.memberships).map((member) => (
                             <small key={text(member.workspaceId)}>
                               {businessName(member.workspaceId)}
-                              {member.callerCanSend ? " · email enabled" : ""}
                             </small>
                           ))}
                         </td>
@@ -370,6 +450,54 @@ export default function CallCentre() {
                 title="Add your first caller"
                 detail="Create a separate login and choose the business websites they can work on."
               />
+            )}
+          </section>
+          <section className="surface">
+            <SectionHeading
+              title="Automatic calling leads"
+              detail="Restaurants and beauty businesses across your selected Gauteng areas. Public listing evidence is saved with each prospect; the caller confirms website needs during the conversation."
+            />
+            {businesses.map((business) => (
+              <article
+                className="caller-booking"
+                key={text(business.workspaceId)}
+              >
+                <div>
+                  <h3>{text(business.name)}</h3>
+                  <Badge
+                    value={
+                      object(business.prospecting).enabled ? "ACTIVE" : "PAUSED"
+                    }
+                  />
+                  <p>
+                    {object(business.prospecting).enabled
+                      ? `Up to ${number(object(business.prospecting).dailyLimit)} new prospects per day · ${number(object(business.prospecting).maxQueue)} ready lead limit`
+                      : "Automatic prospecting has not been enabled."}
+                  </p>
+                  {!!object(business.prospecting).lastRunAt && (
+                    <small>
+                      Last search:{" "}
+                      {date(object(business.prospecting).lastRunAt, true)} ·{" "}
+                      {label(object(business.prospecting).lastStatus)}
+                    </small>
+                  )}
+                </div>
+                <button onClick={() => configureProspecting(business)}>
+                  Configure automatic leads
+                </button>
+              </article>
+            ))}
+            {rows(data.prospectSearches).length > 0 && (
+              <details>
+                <summary>Recent prospect searches</summary>
+                {rows(data.prospectSearches).map((run) => (
+                  <p key={text(run.id)}>
+                    <b>{businessName(run.workspaceId)}</b> ·{" "}
+                    {date(run.createdAt, true)} · {label(run.status)} ·{" "}
+                    {text(run.summary || run.error, "Research queued")}
+                  </p>
+                ))}
+              </details>
             )}
           </section>
           <section className="surface">
