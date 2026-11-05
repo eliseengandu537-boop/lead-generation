@@ -21,21 +21,28 @@ async function main() {
   console.log(
     "Concrete worker started. Public prospecting and admin account emails run directly. Other provider jobs require n8n admission; campaign sending requires client approval.",
   );
-  while (!stopping) {
-    try {
-      await workerTick();
-      await sendIdentityEmails();
-      await prospectingTick();
-    } catch (error) {
-      console.error(
-        error instanceof Error ? error.message : "Worker cycle failed",
-      );
+  async function loop(name: string, tick: () => Promise<unknown>) {
+    while (!stopping) {
+      try {
+        await tick();
+      } catch {
+        console.error(
+          `${name} cycle failed. Existing queued work is retained.`,
+        );
+      }
+      if (!stopping)
+        await pause(interval, undefined, { signal: shutdown.signal }).catch(
+          () => {},
+        );
     }
-    if (!stopping)
-      await pause(interval, undefined, { signal: shutdown.signal }).catch(
-        () => {},
-      );
   }
+  // A slow public-data query or unavailable orchestration endpoint must not
+  // delay booking notifications. Each queue has independent durable claims.
+  await Promise.all([
+    loop("Platform jobs", workerTick),
+    loop("Account notifications", sendIdentityEmails),
+    loop("Calling prospects", prospectingTick),
+  ]);
   await db.$disconnect();
 }
 main().catch(() => {
