@@ -7143,8 +7143,9 @@ select {
   border-radius: 8px;
   padding: 15px;
 }
-.assistant-prompts button span {
+.assistant-prompts button > svg {
   color: var(--muted);
+  flex-shrink: 0;
 }
 .assistant-turn {
   display: grid;

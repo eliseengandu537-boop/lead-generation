@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import {
+  ArrowUpRight,
   Bot,
   Check,
   Copy,
@@ -504,7 +505,11 @@ export default function AssistantScreen({
                       }}
                     >
                       {prompt}
-                      <span>↗</span>
+                      <ArrowUpRight
+                        size={16}
+                        aria-hidden="true"
+                        focusable="false"
+                      />
                     </button>
                   ))}
                 </div>
@@ -575,7 +580,12 @@ export default function AssistantScreen({
                           className="assistant-workspace-link"
                           href={`/?client=${encodeURIComponent(text(action.targetBusinessId))}`}
                         >
-                          Open business ↗
+                          Open business{" "}
+                          <ArrowUpRight
+                            size={14}
+                            aria-hidden="true"
+                            focusable="false"
+                          />
                         </a>
                       )}
                     </div>

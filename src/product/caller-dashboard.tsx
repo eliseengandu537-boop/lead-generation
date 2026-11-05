@@ -5,6 +5,7 @@ import type { Device, Call } from "@twilio/voice-sdk";
 import {
   ArrowRight,
   CalendarDays,
+  ChevronDown,
   ChevronRight,
   Clock3,
   LayoutDashboard,
@@ -961,14 +962,23 @@ export default function CallerDashboard() {
                     >
                       <label>
                         Business type
-                        <input
-                          aria-label="Business type filter"
-                          list="caller-business-suggestions"
-                          placeholder="Type any business, e.g. plumbers"
-                          maxLength={120}
-                          value={industry}
-                          onChange={(event) => setIndustry(event.target.value)}
-                        />
+                        <span className="caller-suggested-input">
+                          <input
+                            aria-label="Business type filter"
+                            list="caller-business-suggestions"
+                            placeholder="Type any business, e.g. plumbers"
+                            maxLength={120}
+                            value={industry}
+                            onChange={(event) =>
+                              setIndustry(event.target.value)
+                            }
+                          />
+                          <ChevronDown
+                            size={16}
+                            aria-hidden="true"
+                            focusable="false"
+                          />
+                        </span>
                         <datalist id="caller-business-suggestions">
                           {businessSuggestions.map((option) => (
                             <option key={option} value={option} />
@@ -977,14 +987,21 @@ export default function CallerDashboard() {
                       </label>
                       <label>
                         Area
-                        <input
-                          aria-label="Prospect area"
-                          list="caller-area-suggestions"
-                          placeholder="South Africa, province, town or suburb"
-                          maxLength={160}
-                          value={city}
-                          onChange={(event) => setCity(event.target.value)}
-                        />
+                        <span className="caller-suggested-input">
+                          <input
+                            aria-label="Prospect area"
+                            list="caller-area-suggestions"
+                            placeholder="South Africa, province, town or suburb"
+                            maxLength={160}
+                            value={city}
+                            onChange={(event) => setCity(event.target.value)}
+                          />
+                          <ChevronDown
+                            size={16}
+                            aria-hidden="true"
+                            focusable="false"
+                          />
+                        </span>
                         <datalist id="caller-area-suggestions">
                           {areaSuggestions.map((option) => (
                             <option key={option} value={option} />
