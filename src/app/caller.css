@@ -431,7 +431,7 @@
   flex-wrap: wrap;
   gap: 7px;
 }
-.caller-filter-tabs button.active {
+.caller-filter-tabs button[aria-pressed="true"] {
   background: var(--accent-soft);
   border-color: var(--accent);
   color: var(--accent);

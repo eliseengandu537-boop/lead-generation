@@ -3,19 +3,44 @@ import { z } from "zod";
 import { controlDb } from "@/lib/db";
 import { HttpError, rateLimit } from "@/lib/auth";
 import { callerAccess } from "./access";
+import { gautengDayStart } from "./prospect-options";
 import {
-  prospectCities,
-  prospectIndustries,
-  gautengDayStart,
-  inProspectArea,
-} from "./prospect-options";
+  allBusinessTypes,
+  allSouthAfrica,
+  matchesBusinessType,
+  matchesSouthAfricanArea,
+  normalizedSearch,
+  type ProspectAddress,
+} from "./prospect-search";
 import { fetchWebsiteProspects, type ProspectCandidate } from "./overture";
 import { phoneNumber } from "./rules";
 
+const businessQuery = z
+  .string()
+  .trim()
+  .max(120)
+  .refine(
+    (value) =>
+      !/[\r\n\x00-\x1f]/.test(value) &&
+      (allBusinessTypes(value) || normalizedSearch(value).length >= 2),
+    "Enter a business type, such as plumbers or dentists.",
+  )
+  .transform((value) => (allBusinessTypes(value) ? "ALL" : value));
+const areaQuery = z
+  .string()
+  .trim()
+  .max(160)
+  .refine(
+    (value) =>
+      !/[\r\n\x00-\x1f]/.test(value) &&
+      (allSouthAfrica(value) || normalizedSearch(value).length >= 2),
+    "Enter South Africa, a province, town or suburb.",
+  )
+  .transform((value) => (allSouthAfrica(value) ? "South Africa" : value));
 export const prospectRequest = z
   .object({
-    industry: z.enum(prospectIndustries).default("ALL"),
-    city: z.enum(["Gauteng", ...prospectCities]).default("Gauteng"),
+    industry: businessQuery.default("ALL"),
+    city: areaQuery.default("South Africa"),
     requestId: z.uuid(),
   })
   .strict();
@@ -24,11 +49,8 @@ export const prospectConfiguration = z
     action: z.literal("configure-prospecting"),
     workspaceId: z.string().min(1),
     enabled: z.boolean(),
-    categories: z
-      .array(z.enum(["Restaurants", "Beauty"]))
-      .min(1)
-      .max(2),
-    cities: z.array(z.enum(prospectCities)).min(1).max(12),
+    categories: z.array(businessQuery).min(1).max(20),
+    cities: z.array(areaQuery).min(1).max(30),
     dailyLimit: z.number().int().min(1).max(50),
     maxQueue: z.number().int().min(10).max(250),
     meetingHostId: z.string().min(1).optional(),
@@ -57,22 +79,6 @@ export async function requestProspectQueue(workspaceId: string, raw: unknown) {
       throw new HttpError(
         409,
         "Automatic prospecting is being set up by your administrator. Your existing leads are ready to work.",
-      );
-    if (
-      input.industry !== "ALL" &&
-      !z.array(z.string()).parse(config.categories).includes(input.industry)
-    )
-      throw new HttpError(
-        400,
-        "Choose a niche enabled for your calling queue.",
-      );
-    if (
-      input.city !== "Gauteng" &&
-      !z.array(z.string()).parse(config.cities).includes(input.city)
-    )
-      throw new HttpError(
-        400,
-        "Choose an area enabled for your calling queue.",
       );
     const same = await tx.platformProspectSearch.findUnique({
       where: {
@@ -122,8 +128,7 @@ export async function requestProspectQueue(workspaceId: string, raw: unknown) {
     });
     return {
       search,
-      message:
-        "Finding restaurants and beauty businesses with phone numbers and no website listed. Results will appear in Ready leads when research finishes.",
+      message: `Finding ${allBusinessTypes(input.industry) ? "businesses" : input.industry} in ${input.city} with phone numbers and no website listed. Results appear when the search finishes; your administrator’s queue limits still apply.`,
     };
   });
 }
@@ -289,6 +294,7 @@ export async function prospectingTick(provider = fetchWebsiteProspects) {
           create: {
             workspaceId: config.businessId,
             idempotencyKey: `daily:${gautengDayStart().toISOString().slice(0, 10)}`,
+            city: "South Africa",
           },
           update: {},
         });
@@ -378,25 +384,13 @@ export async function prospectingTick(provider = fetchWebsiteProspects) {
       select: { sourceRecordId: true },
       take: 20000,
     });
-    const categories = z
-      .array(z.enum(["Restaurants", "Beauty"]))
-      .parse(config.categories);
-    const industry =
-      search.industry === "ALL" && categories.length === 1
-        ? categories[0]
-        : search.industry;
-    const cities = z.array(z.enum(prospectCities)).parse(config.cities);
-    if (
-      (search.industry !== "ALL" &&
-        !categories.includes(search.industry as "Restaurants" | "Beauty")) ||
-      (search.city !== "Gauteng" &&
-        !cities.includes(search.city as (typeof prospectCities)[number]))
-    )
-      throw new Error("Targeting changed");
+    const categories = z.array(businessQuery).parse(config.categories);
+    const cities = z.array(areaQuery).parse(config.cities);
     const found = await provider({
-      industry,
+      industry: search.industry,
       city: search.city,
       cities,
+      categories,
       exclude: existing.map((row) => row.sourceRecordId!),
       limit: remaining,
     });
@@ -435,15 +429,24 @@ export async function prospectingTick(provider = fetchWebsiteProspects) {
       const allowedCategories = z.array(z.string()).parse(current.categories);
       const allowedCities = z.array(z.string()).parse(current.cities);
       const candidates = found.candidates.filter((candidate) => {
-        const point = candidate.evidence.coordinates as
-          { latitude?: number; longitude?: number } | undefined;
+        const address = (candidate.evidence.address || {}) as ProspectAddress;
+        const facts = [
+          candidate.company,
+          candidate.industry,
+          candidate.evidence.category,
+          ...(Array.isArray(candidate.evidence.categoryHierarchy)
+            ? candidate.evidence.categoryHierarchy
+            : []),
+        ].join(" ");
         return (
-          allowedCategories.includes(candidate.industry) &&
-          typeof point?.latitude === "number" &&
-          typeof point.longitude === "number" &&
-          inProspectArea(point.latitude, point.longitude, allowedCities) &&
-          (search.city === "Gauteng" ||
-            inProspectArea(point.latitude, point.longitude, [search.city]))
+          matchesBusinessType(search.industry, facts) &&
+          allowedCategories.some((value) =>
+            matchesBusinessType(value, facts),
+          ) &&
+          matchesSouthAfricanArea(search.city, address, candidate.location) &&
+          allowedCities.some((value) =>
+            matchesSouthAfricanArea(value, address, candidate.location),
+          )
         );
       });
       const freshReady = await tx.platformLead.count({

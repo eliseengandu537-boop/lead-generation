@@ -40,7 +40,12 @@ import {
 } from "./primitives";
 import { ThemeToggle } from "./theme";
 import { CallerMeeting } from "./caller-meeting";
-import { prospectCities } from "@/platform/calling/prospect-options";
+import {
+  areaSuggestions,
+  businessSuggestions,
+  matchesBusinessType,
+  matchesSouthAfricanArea,
+} from "@/platform/calling/prospect-search";
 
 const tabs = [
   ["overview", "My day", LayoutDashboard],
@@ -90,8 +95,8 @@ export default function CallerDashboard() {
     [notice, setNotice] = useState("");
   const [filter, setFilter] = useState("READY"),
     [query, setQuery] = useState(""),
-    [industry, setIndustry] = useState("ALL"),
-    [city, setCity] = useState("Gauteng");
+    [industry, setIndustry] = useState(""),
+    [city, setCity] = useState("South Africa");
   const [dialog, setDialog] = useState<Dialog | null>(null),
     [meeting, setMeeting] = useState<{
       lead: RecordValue;
@@ -162,7 +167,7 @@ export default function CallerDashboard() {
     autoRequested.current.add(workspace);
     void api(`/api/platform/${workspace}/caller/prospects`, "POST", {
       industry: "ALL",
-      city: "Gauteng",
+      city: "South Africa",
       requestId: crypto.randomUUID(),
     })
       .then(() => refresh())
@@ -218,17 +223,25 @@ export default function CallerDashboard() {
         .toLowerCase()
         .includes(query.toLowerCase()),
     )
-    .filter(
-      (lead) =>
-        industry === "ALL" ||
-        text(lead.industry)
-          .toLowerCase()
-          .includes(industry === "Beauty" ? "beauty" : "restaurant"),
+    .filter((lead) =>
+      matchesBusinessType(
+        industry,
+        [
+          lead.company,
+          lead.industry,
+          object(lead.websiteEvidence).category,
+          ...(Array.isArray(object(lead.websiteEvidence).categoryHierarchy)
+            ? (object(lead.websiteEvidence).categoryHierarchy as unknown[])
+            : []),
+        ].join(" "),
+      ),
     )
-    .filter(
-      (lead) =>
-        city === "Gauteng" ||
-        text(lead.location).toLowerCase().includes(city.toLowerCase()),
+    .filter((lead) =>
+      matchesSouthAfricanArea(
+        city,
+        object(object(lead.websiteEvidence).address),
+        text(lead.location),
+      ),
     );
   const searches = rows(prospecting.searches),
     running = searches.find((run) =>
@@ -279,11 +292,7 @@ export default function CallerDashboard() {
         {
           name: "industry",
           label: "Business type",
-          type: "select",
-          options: [
-            { value: "Restaurants", label: "Restaurant" },
-            { value: "Beauty", label: "Beauty business" },
-          ],
+          placeholder: "For example, plumber, dentist or restaurant",
         },
         { name: "notes", label: "Notes", type: "textarea" },
       ],
@@ -477,7 +486,7 @@ export default function CallerDashboard() {
         <div>
           <p className="eyebrow">{text(lead.industry, "Local business")}</p>
           <h3>{text(lead.company)}</h3>
-          <p>{text(lead.location, "Gauteng")}</p>
+          <p>{text(lead.location, "South Africa")}</p>
         </div>
         <Badge
           value={
@@ -869,7 +878,7 @@ export default function CallerDashboard() {
                         detail={
                           running
                             ? "Public business research is in progress. Ready leads appear automatically when it finishes."
-                            : "Your queue focuses on restaurants and beauty businesses across Gauteng with no website listed."
+                            : "Find businesses across South Africa with phone numbers and no website listed."
                         }
                         action={
                           <div className="caller-actions">
@@ -941,47 +950,60 @@ export default function CallerDashboard() {
                   <section className="surface">
                     <SectionHeading
                       title="Find your next website opportunity"
-                      detail="Restaurants and beauty businesses in Gauteng. Research prepares public listings with a phone number and no website listed."
+                      detail="Type any business category and a South African town, suburb or province. Leave the type blank for all businesses; South Africa searches nationwide. Listings need a phone number and no website listed."
                     />
-                    <div className="caller-research-toolbar">
+                    <form
+                      className="caller-research-toolbar"
+                      onSubmit={(event) => {
+                        event.preventDefault();
+                        if (!running && prospecting.enabled) void findMore();
+                      }}
+                    >
                       <label>
                         Business type
-                        <select
+                        <input
                           aria-label="Business type filter"
+                          list="caller-business-suggestions"
+                          placeholder="Type any business, e.g. plumbers"
+                          maxLength={120}
                           value={industry}
                           onChange={(event) => setIndustry(event.target.value)}
-                        >
-                          <option value="ALL">Restaurants & beauty</option>
-                          <option value="Restaurants">Restaurants</option>
-                          <option value="Beauty">Beauty businesses</option>
-                        </select>
+                        />
+                        <datalist id="caller-business-suggestions">
+                          {businessSuggestions.map((option) => (
+                            <option key={option} value={option} />
+                          ))}
+                        </datalist>
                       </label>
                       <label>
                         Area
-                        <select
+                        <input
                           aria-label="Prospect area"
+                          list="caller-area-suggestions"
+                          placeholder="South Africa, province, town or suburb"
+                          maxLength={160}
                           value={city}
                           onChange={(event) => setCity(event.target.value)}
-                        >
-                          <option>Gauteng</option>
-                          {prospectCities.map((option) => (
-                            <option key={option}>{option}</option>
+                        />
+                        <datalist id="caller-area-suggestions">
+                          {areaSuggestions.map((option) => (
+                            <option key={option} value={option} />
                           ))}
-                        </select>
+                        </datalist>
                       </label>
                       <button
                         className="primary"
+                        type="submit"
                         disabled={
                           searching || !!running || !prospecting.enabled
                         }
-                        onClick={() => void findMore()}
                       >
                         <Radar size={16} />
                         {searching || running
                           ? "Finding prospects…"
                           : "Find more leads"}
                       </button>
-                    </div>
+                    </form>
                     {running && (
                       <p className="caller-research-status" role="status">
                         <span className="caller-status-dot" />

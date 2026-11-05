@@ -2,7 +2,13 @@ import path from "node:path";
 import { mkdir } from "node:fs/promises";
 import { z } from "zod";
 import { phoneNumber } from "./rules";
-import { cityCentres, prospectCities } from "./prospect-options";
+import {
+  allSouthAfrica,
+  businessTermGroups,
+  normalizedSearch,
+  provinceFor,
+  termPattern,
+} from "./prospect-search";
 
 export const placesRelease = () =>
   z
@@ -35,7 +41,7 @@ export function candidateFromPlace(
       id: z.string().min(1).max(200),
       company: z.string().trim().min(2).max(240),
       phone: z.string(),
-      category: z.string(),
+      category: z.string().trim().min(2).max(200),
       confidence: z.number().min(0.75).max(1),
       websites: z.unknown(),
       addresses: z.unknown(),
@@ -85,35 +91,36 @@ export function candidateFromPlace(
   )
     return null;
   const address = addresses.data.find((row) => row.country === "ZA")!;
-  if (
-    !address.region ||
-    !["GP", "GAUTENG", "ZA-GP"].includes(address.region.toUpperCase())
-  )
-    return null;
-  if (
-    item.lon < 27.15 ||
-    item.lon > 29.2 ||
-    item.lat < -26.95 ||
-    item.lat > -25.05
-  )
+  if (item.lon < 16 || item.lon > 33.1 || item.lat < -35 || item.lat > -22)
     return null;
   const category = item.category.toLowerCase();
   const beauty = /(^|_)(beauty|hair|nail|barber|spa)(_|$)/.test(category);
   const hierarchy = json(raw.categoryHierarchy);
-  if (
-    !beauty &&
-    !category.includes("restaurant") &&
-    !(Array.isArray(hierarchy) && hierarchy.includes("restaurant"))
-  )
-    return null;
+  const restaurant =
+    category.includes("restaurant") ||
+    (Array.isArray(hierarchy) && hierarchy.includes("restaurant"));
+  const province = provinceFor(address.region || "");
   const email = z.email().safeParse(raw.email);
   return {
     sourceRecordId: `OVERTURE:${item.id}`,
     company: item.company,
     phone,
     email: email.success ? email.data.toLowerCase() : null,
-    industry: beauty ? "Beauty" : "Restaurants",
-    location: [address.locality || address.freeform || "Gauteng", "Gauteng"]
+    industry: beauty
+      ? "Beauty"
+      : restaurant
+        ? "Restaurants"
+        : category
+            .replaceAll("_", " ")
+            .replace(/\b\w/g, (letter) => letter.toUpperCase()),
+    location: [
+      ...new Set(
+        [
+          address.locality || address.freeform,
+          province?.name || "South Africa",
+        ].filter(Boolean),
+      ),
+    ]
       .join(", ")
       .slice(0, 240),
     websitePresence: "NO_WEBSITE_LISTED",
@@ -125,6 +132,8 @@ export function candidateFromPlace(
       websiteField: websites || [],
       phones: [phone],
       category,
+      categoryHierarchy: Array.isArray(hierarchy) ? hierarchy : [],
+      address,
       confidence: item.confidence,
       sources: json(item.sources) || [],
       coordinates: { latitude: item.lat, longitude: item.lon },
@@ -135,13 +144,76 @@ export function candidateFromPlace(
   };
 }
 
-export async function fetchWebsiteProspects(options: {
+type ProspectQuery = {
   industry: string;
   city: string;
   exclude: string[];
   limit: number;
   cities?: string[];
-}): Promise<{ checked: number; candidates: ProspectCandidate[] }> {
+  categories?: string[];
+};
+/** User text is bound as data. SQL operators and identifiers are fixed here. */
+export function prospectQueryPredicate(options: ProspectQuery) {
+  const params: string[] = [];
+  const bind = (value: string) => {
+    params.push(value);
+    return `$${params.length}`;
+  };
+  const words = (expression: string) =>
+    `trim(regexp_replace(lower(strip_accents(coalesce(${expression},''))), '[^a-z0-9]+', ' ', 'g'))`;
+  const businessFacts = words(
+    "concat_ws(' ', taxonomy.primary, array_to_string(taxonomy.hierarchy,' '), names.primary)",
+  );
+  const business = (query: string) => {
+    const groups = businessTermGroups(query);
+    return !groups.length
+      ? "true"
+      : `(${groups.map((group) => `(${group.map((term) => `regexp_matches(${businessFacts}, ${bind(termPattern(term))})`).join(" AND ")})`).join(" OR ")})`;
+  };
+  const areaFacts = words(
+    "concat_ws(' ', addresses[1].locality, addresses[1].freeform)",
+  );
+  const region = words("addresses[1].region");
+  const area = (query: string) => {
+    if (allSouthAfrica(query)) return "true";
+    const parts = query
+      .split(",")
+      .filter((part) => part.trim() && !allSouthAfrica(part));
+    return `(${
+      parts
+        .map((part) => {
+          const province = provinceFor(part);
+          return province
+            ? `list_contains(string_split(${bind(province.aliases.map(normalizedSearch).join("|"))},'|'),${region})`
+            : `contains(${areaFacts},${bind(normalizedSearch(part))})`;
+        })
+        .join(" AND ") || "false"
+    })`;
+  };
+  const excluded = options.exclude
+    .map((value) => value.replace(/^OVERTURE:/, ""))
+    .filter((value) => /^[\w:@.-]{1,200}$/.test(value))
+    .slice(0, 20000)
+    .join(",");
+  const selectedBusiness = business(options.industry);
+  const selectedArea = area(options.city);
+  const allowedBusiness = (
+    options.categories?.length ? options.categories : ["ALL"]
+  )
+    .map(business)
+    .join(" OR ");
+  const allowedArea = (
+    options.cities?.length ? options.cities : ["South Africa"]
+  )
+    .map(area)
+    .join(" OR ");
+  const sql = `bbox.xmin BETWEEN 16 AND 33.1 AND bbox.ymin BETWEEN -35 AND -22 AND addresses[1].country='ZA' AND confidence>=0.75 AND (websites IS NULL OR len(websites)=0) AND len(phones)>0 AND ${selectedBusiness} AND ${selectedArea} AND (${allowedBusiness}) AND (${allowedArea}) AND NOT list_contains(string_split(${bind(excluded)},','),id)`;
+  return { sql, params };
+}
+
+export async function fetchWebsiteProspects(
+  options: ProspectQuery,
+): Promise<{ checked: number; candidates: ProspectCandidate[] }> {
   const { DuckDBInstance } = await import("@duckdb/node-api");
   const directory = path.resolve(".local/duckdb-extensions");
   await mkdir(directory, { recursive: true });
@@ -164,47 +236,10 @@ export async function fetchWebsiteProspects(options: {
       "SET s3_region='us-west-2'; SET http_timeout=20; SET http_retries=1;",
     );
     const release = placesRelease();
-    const centre = cityCentres[options.city];
-    const bounds = centre
-      ? [
-          Math.max(27.15, centre[1] - 0.18),
-          Math.min(29.2, centre[1] + 0.18),
-          Math.max(-26.95, centre[0] - 0.16),
-          Math.min(-25.05, centre[0] + 0.16),
-        ]
-      : [27.15, 29.2, -26.95, -25.05];
-    const beauty =
-        "regexp_matches(taxonomy.primary,'(^|_)(beauty|hair|nail|barber|spa)(_|$)')",
-      restaurant = "list_contains(taxonomy.hierarchy,'restaurant')";
-    const category =
-      options.industry === "Beauty"
-        ? beauty
-        : options.industry === "Restaurants"
-          ? restaurant
-          : `(${beauty} OR ${restaurant})`;
-    const excluded = options.exclude
-      .map((value) => value.replace(/^OVERTURE:/, ""))
-      .filter((value) => /^[\w:@.-]{1,200}$/.test(value))
-      .slice(0, 20000)
-      .join(",");
-    const area =
-      options.city === "Gauteng" &&
-      options.cities &&
-      options.cities.length < prospectCities.length
-        ? options.cities
-            .flatMap((city) => {
-              const point = cityCentres[city];
-              return point
-                ? [
-                    `(bbox.xmin BETWEEN ${point[1] - 0.18} AND ${point[1] + 0.18} AND bbox.ymin BETWEEN ${point[0] - 0.16} AND ${point[0] + 0.16})`,
-                  ]
-                : [];
-            })
-            .join(" OR ")
-        : "true";
+    const predicate = prospectQueryPredicate(options);
     const result = await connection.runAndReadAll(
-      `SELECT id, names.primary AS company, taxonomy.primary AS category, CAST(taxonomy.hierarchy AS JSON) AS categoryHierarchy, phones[1] AS phone, emails[1] AS email, CAST(websites AS JSON) AS websites, CAST(addresses AS JSON) AS addresses, CAST(sources AS JSON) AS sources, confidence, bbox.xmin AS lon, bbox.ymin AS lat FROM read_parquet('s3://overturemaps-us-west-2/release/${release}/theme=places/type=place/*', hive_partitioning=true) WHERE bbox.xmin BETWEEN ${bounds[0]} AND ${bounds[1]} AND bbox.ymin BETWEEN ${bounds[2]} AND ${bounds[3]} AND (${area || "false"}) AND addresses[1].country='ZA' AND UPPER(addresses[1].region) IN ('GP','GAUTENG','ZA-GP') AND confidence>=0.75 AND (websites IS NULL OR len(websites)=0) AND len(phones)>0 AND ${category} AND NOT list_contains(string_split($1,','),id) LIMIT 200`,
-      [excluded],
+      `SELECT id, names.primary AS company, taxonomy.primary AS category, CAST(taxonomy.hierarchy AS JSON) AS categoryHierarchy, phones[1] AS phone, emails[1] AS email, CAST(websites AS JSON) AS websites, CAST(addresses AS JSON) AS addresses, CAST(sources AS JSON) AS sources, confidence, bbox.xmin AS lon, bbox.ymin AS lat FROM read_parquet('s3://overturemaps-us-west-2/release/${release}/theme=places/type=place/*', hive_partitioning=true) WHERE ${predicate.sql} LIMIT 200`,
+      predicate.params,
     );
     const rows = result.getRowObjectsJson();
     return {

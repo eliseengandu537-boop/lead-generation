@@ -290,8 +290,8 @@ export async function readCallerWorkspace(workspaceId: string) {
       enabled: Boolean(prospectConfig?.enabled),
       lastRunAt: prospectConfig?.lastRunAt || null,
       status: prospectConfig?.lastStatus || "NOT_STARTED",
-      categories: prospectConfig?.categories || ["Restaurants", "Beauty"],
-      cities: prospectConfig?.cities || [],
+      categories: prospectConfig?.categories || ["ALL"],
+      cities: prospectConfig?.cities || ["South Africa"],
       searches: prospectSearches,
     },
   };

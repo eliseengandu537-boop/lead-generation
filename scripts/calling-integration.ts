@@ -808,6 +808,77 @@ async function main() {
   pass(
     "Changes to caller access during a research job prevent its results from being saved",
   );
+  await post(admin, "/api/platform/admin/call-centre", {
+    ...configuration,
+    workspaceId: b.workspaceId,
+    enabled: true,
+    categories: ["ALL"],
+    cities: ["South Africa"],
+    notifyAdminEmail: false,
+  });
+  const nationwide = await post(
+    colleague,
+    `/api/platform/${b.workspaceId}/caller/prospects`,
+    {
+      industry: "Dentists",
+      city: "Cape Town, Western Cape",
+      requestId: randomUUID(),
+    },
+  );
+  assert.equal(nationwide.search.industry, "Dentists");
+  const capeDentist = candidateFromPlace(
+    {
+      id: "cape-dentist",
+      company: "Dental fixture",
+      phone: "0212345678",
+      category: "dentist",
+      confidence: 0.9,
+      websites: null,
+      addresses: [{ country: "ZA", region: "WC", locality: "Cape Town" }],
+      sources: [],
+      lon: 18.42,
+      lat: -33.92,
+    },
+    "2026-10-21.0",
+  )!;
+  await prospectingTick(async (options) => {
+    assert.equal(options.industry, "Dentists");
+    assert.equal(options.city, "Cape Town, Western Cape");
+    return {
+      checked: 2,
+      candidates: [capeDentist, makeCandidate("wrong-niche", "0812345688")],
+    };
+  });
+  assert.equal(
+    await controlDb.platformLead.count({
+      where: {
+        workspaceId: b.workspaceId,
+        sourceRecordId: "OVERTURE:cape-dentist",
+      },
+    }),
+    1,
+  );
+  assert.equal(
+    await controlDb.platformLead.count({
+      where: {
+        workspaceId: b.workspaceId,
+        sourceRecordId: "OVERTURE:wrong-niche",
+      },
+    }),
+    0,
+  );
+  assert.equal(
+    await controlDb.platformLead.count({
+      where: {
+        workspaceId: a.workspaceId,
+        sourceRecordId: "OVERTURE:cape-dentist",
+      },
+    }),
+    0,
+  );
+  pass(
+    "Typed national searches accept new niches and non-Gauteng towns, import only matching source facts and retain business isolation",
+  );
   const createdEmail = `calling-new-${suffix}@example.invalid`;
   const provisioned = await post(admin, "/api/platform/admin/call-centre", {
     action: "create-caller",

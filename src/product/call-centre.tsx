@@ -1,7 +1,6 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
 import { Download, Phone, Plus, RefreshCw, X } from "lucide-react";
-import { prospectCities } from "@/platform/calling/prospect-options";
 import {
   api,
   date,
@@ -104,10 +103,10 @@ export default function CallCentre() {
     const config = object(business.prospecting);
     const categories = Array.isArray(config.categories)
       ? config.categories
-      : ["Restaurants", "Beauty"];
+      : ["ALL"];
     const cities = Array.isArray(config.cities)
       ? config.cities
-      : [...prospectCities];
+      : ["South Africa"];
     setDialog({
       title: `Automatic leads · ${text(business.name)}`,
       detail:
@@ -121,23 +120,20 @@ export default function CallCentre() {
           value: Boolean(config.enabled),
         },
         {
-          name: "restaurants",
-          label: "Restaurants",
-          type: "checkbox",
-          value: categories.includes("Restaurants"),
+          name: "categories",
+          label: "Business types (comma-separated, or All)",
+          required: true,
+          value: categories.join(", "),
+          placeholder: "All, or plumbers, dentists, restaurants",
         },
         {
-          name: "beauty",
-          label: "Beauty businesses",
-          type: "checkbox",
-          value: categories.includes("Beauty"),
+          name: "cities",
+          label: "Areas (one per line, or South Africa)",
+          type: "textarea",
+          required: true,
+          value: cities.join("\n"),
+          placeholder: "South Africa",
         },
-        ...prospectCities.map((city, index) => ({
-          name: `city${index}`,
-          label: city,
-          type: "checkbox" as const,
-          value: cities.includes(city),
-        })),
         {
           name: "dailyLimit",
           label: "Maximum new leads per day (1–50)",
@@ -176,13 +172,14 @@ export default function CallCentre() {
           action: "configure-prospecting",
           workspaceId: business.workspaceId,
           enabled: Boolean(fields.enabled),
-          categories: [
-            fields.restaurants ? "Restaurants" : "",
-            fields.beauty ? "Beauty" : "",
-          ].filter(Boolean),
-          cities: prospectCities.filter(
-            (_city, index) => fields[`city${index}`],
-          ),
+          categories: String(fields.categories)
+            .split(/[,;\n]+/)
+            .map((value) => value.trim())
+            .filter(Boolean),
+          cities: String(fields.cities)
+            .split(/\n+/)
+            .map((value) => value.trim())
+            .filter(Boolean),
           dailyLimit: Number(fields.dailyLimit),
           maxQueue: Number(fields.maxQueue),
           meetingHostId: fields.meetingHostId,
@@ -455,7 +452,7 @@ export default function CallCentre() {
           <section className="surface">
             <SectionHeading
               title="Automatic calling leads"
-              detail="Restaurants and beauty businesses across your selected Gauteng areas. Public listing evidence is saved with each prospect; the caller confirms website needs during the conversation."
+              detail="Any business type across South Africa or your chosen areas. Public listing evidence is saved with each prospect; the caller confirms website needs during the conversation."
             />
             {businesses.map((business) => (
               <article
