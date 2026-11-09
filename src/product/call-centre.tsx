@@ -110,7 +110,7 @@ export default function CallCentre() {
     setDialog({
       title: `Automatic leads · ${text(business.name)}`,
       detail:
-        "Prepare business listings with phone numbers and no website listed. The local automation computer must stay online. A missing website in a listing must be confirmed with the owner. Daily and queue limits prevent repeated imports.",
+        "Prepare business listings with public phone numbers in your chosen niches and areas. Include businesses with websites or limit research to those with no website listed. The local automation computer must stay online. Daily and queue limits prevent repeated imports.",
       submitLabel: "Save automatic lead settings",
       fields: [
         {
@@ -136,10 +136,23 @@ export default function CallCentre() {
         },
         {
           name: "dailyLimit",
-          label: "Maximum new leads per day (1–50)",
+          label: "Maximum new leads per day (1–250)",
           type: "number",
           required: true,
           value: config.dailyLimit || 30,
+        },
+        {
+          name: "dailyCallTarget",
+          label: "Daily call target (1–500)",
+          type: "number",
+          required: true,
+          value: config.dailyCallTarget || 100,
+        },
+        {
+          name: "requireMissingWebsite",
+          label: "Only collect businesses with no website listed",
+          type: "checkbox",
+          value: config.requireMissingWebsite !== false,
         },
         {
           name: "maxQueue",
@@ -181,6 +194,8 @@ export default function CallCentre() {
             .map((value) => value.trim())
             .filter(Boolean),
           dailyLimit: Number(fields.dailyLimit),
+          dailyCallTarget: Number(fields.dailyCallTarget),
+          requireMissingWebsite: Boolean(fields.requireMissingWebsite),
           maxQueue: Number(fields.maxQueue),
           meetingHostId: fields.meetingHostId,
           notifyAdminEmail: Boolean(fields.notifyAdminEmail),

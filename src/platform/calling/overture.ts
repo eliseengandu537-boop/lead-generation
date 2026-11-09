@@ -4,6 +4,7 @@ import { z } from "zod";
 import { phoneNumber } from "./rules";
 import {
   allSouthAfrica,
+  categoryOnlyBusinessType,
   businessTermGroups,
   normalizedSearch,
   provinceFor,
@@ -15,6 +16,17 @@ export const placesRelease = () =>
     .string()
     .regex(/^20\d\d-\d\d-\d\d\.\d+$/)
     .parse(process.env.OVERTURE_RELEASE || "2026-10-21.0");
+export function publicPlaceFiles(
+  rows: Record<string, unknown>[],
+  release: string,
+) {
+  const allowed = new RegExp(
+    `^https://overturemaps-us-west-2\\.s3\\.us-west-2\\.amazonaws\\.com/release/${release.replaceAll(".", "\\.")}/theme=places/type=place/part-[a-zA-Z0-9.-]+\\.parquet$`,
+  );
+  return [
+    ...new Set(rows.map((row) => z.string().regex(allowed).parse(row.file))),
+  ];
+}
 export type ProspectCandidate = {
   sourceRecordId: string;
   company: string;
@@ -22,12 +34,14 @@ export type ProspectCandidate = {
   email: string | null;
   industry: string;
   location: string;
-  websitePresence: "NO_WEBSITE_LISTED";
+  websitePresence: "NO_WEBSITE_LISTED" | "WEBSITE_LISTED";
+  website: string;
   evidence: Record<string, unknown>;
 };
 export function candidateFromPlace(
   raw: Record<string, unknown>,
   release: string,
+  options: { requireMissingWebsite?: boolean } = {},
 ): ProspectCandidate | null {
   const json = (value: unknown): unknown => {
     try {
@@ -60,12 +74,18 @@ export function candidateFromPlace(
       item.websites !== "null")
   )
     return null;
-  if (
-    Array.isArray(websites)
-      ? websites.length > 0
-      : websites !== null && websites !== undefined
-  )
-    return null;
+  if (websites !== null && !Array.isArray(websites)) return null;
+  const hasWebsite = Array.isArray(websites) && websites.length > 0;
+  if (hasWebsite && options.requireMissingWebsite !== false) return null;
+  if (raw.operatingStatus && raw.operatingStatus !== "open") return null;
+  const listedWebsite = Array.isArray(websites)
+    ? websites.find(
+        (value) =>
+          typeof value === "string" &&
+          /^https?:\/\//i.test(value) &&
+          z.url().safeParse(value).success,
+      )
+    : "";
   let phone: string;
   try {
     phone = phoneNumber(item.phone);
@@ -123,13 +143,15 @@ export function candidateFromPlace(
     ]
       .join(", ")
       .slice(0, 240),
-    websitePresence: "NO_WEBSITE_LISTED",
+    websitePresence: hasWebsite ? "WEBSITE_LISTED" : "NO_WEBSITE_LISTED",
+    website: listedWebsite || "",
     evidence: {
       provider: "Overture Maps Foundation",
       release,
       recordId: item.id,
       checkedAt: new Date().toISOString(),
       websiteField: websites || [],
+      operatingStatus: raw.operatingStatus || "unknown",
       phones: [phone],
       category,
       categoryHierarchy: Array.isArray(hierarchy) ? hierarchy : [],
@@ -137,8 +159,9 @@ export function candidateFromPlace(
       confidence: item.confidence,
       sources: json(item.sources) || [],
       coordinates: { latitude: item.lat, longitude: item.lon },
-      finding:
-        "No website is listed in this source. This does not establish that no website exists elsewhere.",
+      finding: hasWebsite
+        ? "A website is listed in this public source. Website content and phone reachability have not been verified."
+        : "No website is listed in this source. This does not establish that no website exists elsewhere.",
       license: "https://docs.overturemaps.org/attribution/#places",
     },
   };
@@ -151,6 +174,7 @@ type ProspectQuery = {
   limit: number;
   cities?: string[];
   categories?: string[];
+  requireMissingWebsite?: boolean;
 };
 /** User text is bound as data. SQL operators and identifiers are fixed here. */
 export function prospectQueryPredicate(options: ProspectQuery) {
@@ -164,11 +188,17 @@ export function prospectQueryPredicate(options: ProspectQuery) {
   const businessFacts = words(
     "concat_ws(' ', taxonomy.primary, array_to_string(taxonomy.hierarchy,' '), names.primary)",
   );
+  const categoryFacts = words(
+    "concat_ws(' ', taxonomy.primary, array_to_string(taxonomy.hierarchy,' '))",
+  );
   const business = (query: string) => {
     const groups = businessTermGroups(query);
+    const facts = categoryOnlyBusinessType(query)
+      ? categoryFacts
+      : businessFacts;
     return !groups.length
       ? "true"
-      : `(${groups.map((group) => `(${group.map((term) => `regexp_matches(${businessFacts}, ${bind(termPattern(term))})`).join(" AND ")})`).join(" OR ")})`;
+      : `(${groups.map((group) => `(${group.map((term) => `regexp_matches(${facts}, ${bind(termPattern(term))})`).join(" AND ")})`).join(" OR ")})`;
   };
   const areaFacts = words(
     "concat_ws(' ', addresses[1].locality, addresses[1].freeform)",
@@ -207,7 +237,7 @@ export function prospectQueryPredicate(options: ProspectQuery) {
   )
     .map(area)
     .join(" OR ");
-  const sql = `bbox.xmin BETWEEN 16 AND 33.1 AND bbox.ymin BETWEEN -35 AND -22 AND addresses[1].country='ZA' AND confidence>=0.75 AND (websites IS NULL OR len(websites)=0) AND len(phones)>0 AND ${selectedBusiness} AND ${selectedArea} AND (${allowedBusiness}) AND (${allowedArea}) AND NOT list_contains(string_split(${bind(excluded)},','),id)`;
+  const sql = `bbox.xmin BETWEEN 16 AND 33.1 AND bbox.ymin BETWEEN -35 AND -22 AND addresses[1].country='ZA' AND confidence>=0.75 AND coalesce(operating_status,'open')='open' AND ${options.requireMissingWebsite === false ? "true" : "(websites IS NULL OR len(websites)=0)"} AND len(phones)>0 AND ${selectedBusiness} AND ${selectedArea} AND (${allowedBusiness}) AND (${allowedArea}) AND NOT list_contains(string_split(${bind(excluded)},','),id)`;
   return { sql, params };
 }
 
@@ -236,18 +266,28 @@ export async function fetchWebsiteProspects(
       "SET s3_region='us-west-2'; SET http_timeout=20; SET http_retries=1;",
     );
     const release = placesRelease();
+    // Discover only fragments overlapping South Africa. Scanning the global S3
+    // glob first makes every search inspect unrelated continents' file metadata.
+    const index = await connection.runAndReadAll(
+      `SELECT assets.aws.href AS file FROM read_parquet('https://stac.overturemaps.org/${release}/collections.parquet') WHERE collection='place' AND bbox.xmin<=33.1 AND bbox.xmax>=16 AND bbox.ymin<=-22 AND bbox.ymax>=-35`,
+    );
+    const files = publicPlaceFiles(index.getRowObjectsJson(), release);
+    if (!files.length) return { checked: 0, candidates: [] };
+    // URLs are restricted to this release's official public S3 parquet objects;
+    // their allowlist excludes SQL delimiters and alternate hosts.
+    const source = `[${files.map((file) => `'${file}'`).join(",")}]`;
     const predicate = prospectQueryPredicate(options);
     const result = await connection.runAndReadAll(
-      `SELECT id, names.primary AS company, taxonomy.primary AS category, CAST(taxonomy.hierarchy AS JSON) AS categoryHierarchy, phones[1] AS phone, emails[1] AS email, CAST(websites AS JSON) AS websites, CAST(addresses AS JSON) AS addresses, CAST(sources AS JSON) AS sources, confidence, bbox.xmin AS lon, bbox.ymin AS lat FROM read_parquet('s3://overturemaps-us-west-2/release/${release}/theme=places/type=place/*', hive_partitioning=true) WHERE ${predicate.sql} LIMIT 200`,
+      `SELECT id, names.primary AS company, taxonomy.primary AS category, CAST(taxonomy.hierarchy AS JSON) AS categoryHierarchy, operating_status AS operatingStatus, phones[1] AS phone, emails[1] AS email, CAST(websites AS JSON) AS websites, CAST(addresses AS JSON) AS addresses, CAST(sources AS JSON) AS sources, confidence, bbox.xmin AS lon, bbox.ymin AS lat FROM read_parquet(${source}, hive_partitioning=true) WHERE ${predicate.sql} LIMIT ${Math.max(200, Math.min(1000, Math.ceil(options.limit) * 4))}`,
       predicate.params,
     );
     const rows = result.getRowObjectsJson();
     return {
       checked: rows.length,
       candidates: rows
-        .map((row) => candidateFromPlace(row, release))
+        .map((row) => candidateFromPlace(row, release, options))
         .filter((row): row is ProspectCandidate => Boolean(row))
-        .slice(0, Math.min(50, Math.max(1, options.limit))),
+        .slice(0, Math.min(250, Math.max(1, options.limit))),
     };
   } finally {
     clearTimeout(timeout);

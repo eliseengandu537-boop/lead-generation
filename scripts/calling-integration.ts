@@ -879,6 +879,74 @@ async function main() {
   pass(
     "Typed national searches accept new niches and non-Gauteng towns, import only matching source facts and retain business isolation",
   );
+  await post(admin, "/api/platform/admin/call-centre", {
+    ...configuration,
+    workspaceId: b.workspaceId,
+    enabled: true,
+    categories: ["Plumbers", "Auto spares"],
+    cities: ["South Africa"],
+    dailyLimit: 115,
+    dailyCallTarget: 100,
+    requireMissingWebsite: false,
+    maxQueue: 150,
+    notifyAdminEmail: false,
+  });
+  const websiteProspect = candidateFromPlace(
+    {
+      id: "website-parts",
+      company: "Public parts fixture",
+      category: "auto_parts_store",
+      phone: "0212345699",
+      websites: ["https://example.invalid/"],
+      confidence: 0.95,
+      operatingStatus: "open",
+      addresses: [{ country: "ZA", region: "WC", locality: "Cape Town" }],
+      sources: [{ dataset: "synthetic local fixture" }],
+      lon: 18.42,
+      lat: -33.92,
+    },
+    "2026-10-21.0",
+    { requireMissingWebsite: false },
+  )!;
+  await controlDb.platformProspectSearch.create({
+    data: {
+      workspaceId: b.workspaceId,
+      idempotencyKey: `sales-websites:${suffix}`,
+      actorId: other.id,
+      city: "South Africa",
+    },
+  });
+  await prospectingTick(async (options) => {
+    assert.equal(options.requireMissingWebsite, false);
+    return { checked: 2, candidates: [websiteProspect, capeDentist] };
+  });
+  const websiteLead = await controlDb.platformLead.findFirstOrThrow({
+    where: {
+      workspaceId: b.workspaceId,
+      sourceRecordId: "OVERTURE:website-parts",
+    },
+  });
+  assert.equal(websiteLead.websitePresence, "WEBSITE_LISTED");
+  assert.equal(websiteLead.website, "https://example.invalid/");
+  assert.equal(websiteLead.salesQualification, "UNREVIEWED");
+  assert.equal(websiteLead.eligibility, "UNKNOWN");
+  const salesQueue = await (
+    await colleague(`/api/platform/${b.workspaceId}/caller`)
+  ).json();
+  assert.equal(salesQueue.totals.ready, 1);
+  assert.equal(salesQueue.prospecting.dailyLimit, 115);
+  assert.equal(salesQueue.prospecting.dailyCallTarget, 100);
+  assert.equal(salesQueue.prospecting.requireMissingWebsite, false);
+  assert.ok(
+    salesQueue.leads.some(
+      (row: { id: string; sourceRecordId: string }) =>
+        row.id !== websiteLead.id &&
+        row.sourceRecordId === "OVERTURE:cape-dentist",
+    ),
+  );
+  pass(
+    "Sales targets accept 115 leads and 100 calls, include listed websites without granting consent or qualification, and preserve earlier leads outside the ready niche",
+  );
   const createdEmail = `calling-new-${suffix}@example.invalid`;
   const provisioned = await post(admin, "/api/platform/admin/call-centre", {
     action: "create-caller",

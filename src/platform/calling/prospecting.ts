@@ -9,6 +9,7 @@ import {
   allSouthAfrica,
   matchesBusinessType,
   matchesSouthAfricanArea,
+  matchesProspectingScope,
   normalizedSearch,
   type ProspectAddress,
 } from "./prospect-search";
@@ -51,14 +52,16 @@ export const prospectConfiguration = z
     enabled: z.boolean(),
     categories: z.array(businessQuery).min(1).max(20),
     cities: z.array(areaQuery).min(1).max(30),
-    dailyLimit: z.number().int().min(1).max(50),
+    dailyLimit: z.number().int().min(1).max(250),
+    dailyCallTarget: z.number().int().min(1).max(500).default(100),
+    requireMissingWebsite: z.boolean().default(true),
     maxQueue: z.number().int().min(10).max(250),
     meetingHostId: z.string().min(1).optional(),
     notifyAdminEmail: z.boolean().default(true),
   })
   .strict();
 export const readyLeadWhere = {
-  websitePresence: "NO_WEBSITE_LISTED",
+  websitePresence: { in: ["NO_WEBSITE_LISTED", "WEBSITE_LISTED"] },
   doNotCall: false,
   unsubscribedAt: null,
   phone: { not: "" },
@@ -128,7 +131,7 @@ export async function requestProspectQueue(workspaceId: string, raw: unknown) {
     });
     return {
       search,
-      message: `Finding ${allBusinessTypes(input.industry) ? "businesses" : input.industry} in ${input.city} with phone numbers and no website listed. Results appear when the search finishes; your administrator’s queue limits still apply.`,
+      message: `Finding ${allBusinessTypes(input.industry) ? "businesses" : input.industry} in ${input.city} with public phone numbers${config.requireMissingWebsite ? " and no website listed" : ", with or without websites"}. Results appear when the search finishes; your administrator’s queue limits still apply.`,
     };
   });
 }
@@ -201,39 +204,58 @@ export async function importProspectCandidates(
     select: { toNumber: true },
   });
   blocked.forEach((row) => phones.add(row.toNumber));
-  let added = 0;
+  const data: Prisma.PlatformLeadCreateManyInput[] = [];
   for (const candidate of candidates) {
     if (
-      added >= limit ||
+      data.length >= limit ||
       ids.has(candidate.sourceRecordId) ||
       phones.has(candidate.phone)
     )
       continue;
-    await tx.platformLead.create({
-      data: {
-        workspaceId,
-        company: candidate.company,
-        phone: candidate.phone,
-        email: candidate.email,
-        industry: candidate.industry,
-        location: candidate.location,
-        sourceKind: "OVERTURE",
-        sourceRecordId: candidate.sourceRecordId,
-        sourceUrl: "https://docs.overturemaps.org/guides/places/",
-        website: "",
-        websitePresence: candidate.websitePresence,
-        websiteCheckedAt: new Date(),
-        websiteEvidence: candidate.evidence as Prisma.InputJsonValue,
-        createdById: actorId,
-        notes:
-          "Website opportunity: this public source lists a business phone and no website. Ask the owner to confirm their current website before offering a meeting. Listing details can be outdated.",
-      },
+    data.push({
+      workspaceId,
+      company: candidate.company,
+      phone: candidate.phone,
+      email: candidate.email,
+      industry: candidate.industry,
+      location: candidate.location,
+      sourceKind: "OVERTURE",
+      sourceRecordId: candidate.sourceRecordId,
+      sourceUrl: "https://docs.overturemaps.org/guides/places/",
+      website: candidate.website,
+      websitePresence: candidate.websitePresence,
+      websiteCheckedAt: new Date(),
+      websiteEvidence: candidate.evidence as Prisma.InputJsonValue,
+      createdById: actorId,
+      notes:
+        "Public business listing for your sales queue. Confirm the phone number, decision maker and business needs during the call. Listing details and contact numbers have not been independently verified.",
     });
     ids.add(candidate.sourceRecordId);
     phones.add(candidate.phone);
-    added++;
   }
-  return added;
+  return data.length ? (await tx.platformLead.createMany({ data })).count : 0;
+}
+
+export async function countReadyProspects(
+  tx: Prisma.TransactionClient,
+  workspaceId: string,
+  config: {
+    categories: unknown;
+    cities: unknown;
+    requireMissingWebsite: boolean;
+  },
+) {
+  const leads = await tx.platformLead.findMany({
+    where: { workspaceId, ...readyLeadWhere },
+    select: {
+      company: true,
+      industry: true,
+      location: true,
+      websitePresence: true,
+      websiteEvidence: true,
+    },
+  });
+  return leads.filter((lead) => matchesProspectingScope(lead, config)).length;
 }
 
 export async function prospectingTick(provider = fetchWebsiteProspects) {
@@ -275,6 +297,34 @@ export async function prospectingTick(provider = fetchWebsiteProspects) {
         where: { businessId: config.businessId },
       });
       if (!current?.enabled || current.nextRunAt > new Date()) return;
+      const today = gautengDayStart();
+      const tomorrow = new Date(today.getTime() + 86400000);
+      const used = await tx.platformLead.count({
+        where: {
+          workspaceId: config.businessId,
+          sourceKind: "OVERTURE",
+          createdAt: { gte: today },
+        },
+      });
+      const ready = await countReadyProspects(tx, config.businessId, current);
+      const batches = await tx.platformProspectSearch.count({
+        where: {
+          workspaceId: config.businessId,
+          idempotencyKey: { startsWith: "daily:" },
+          createdAt: { gte: today },
+        },
+      });
+      if (
+        used >= current.dailyLimit ||
+        ready >= current.maxQueue ||
+        batches >= 10
+      ) {
+        await tx.platformProspectingConfig.update({
+          where: { businessId: config.businessId },
+          data: { nextRunAt: tomorrow },
+        });
+        return;
+      }
       if (
         !(await tx.platformProspectSearch.findFirst({
           where: {
@@ -284,23 +334,16 @@ export async function prospectingTick(provider = fetchWebsiteProspects) {
           select: { id: true },
         }))
       )
-        await tx.platformProspectSearch.upsert({
-          where: {
-            workspaceId_idempotencyKey: {
-              workspaceId: config.businessId,
-              idempotencyKey: `daily:${gautengDayStart().toISOString().slice(0, 10)}`,
-            },
-          },
-          create: {
+        await tx.platformProspectSearch.create({
+          data: {
             workspaceId: config.businessId,
-            idempotencyKey: `daily:${gautengDayStart().toISOString().slice(0, 10)}`,
+            idempotencyKey: `daily:${today.toISOString().slice(0, 10)}:batch:${batches}`,
             city: "South Africa",
           },
-          update: {},
         });
       await tx.platformProspectingConfig.update({
         where: { businessId: config.businessId },
-        data: { nextRunAt: new Date(Date.now() + 24 * 3600000) },
+        data: { nextRunAt: new Date(Date.now() + 5 * 60000) },
       });
     });
   const search = await controlDb.$transaction(async (tx) => {
@@ -343,9 +386,11 @@ export async function prospectingTick(provider = fetchWebsiteProspects) {
       }))
     )
       throw new Error("Access changed");
-    const ready = await controlDb.platformLead.count({
-      where: { workspaceId: search.workspaceId, ...readyLeadWhere },
-    });
+    const ready = await countReadyProspects(
+      controlDb,
+      search.workspaceId,
+      config,
+    );
     const today = gautengDayStart();
     const used = await controlDb.platformLead.count({
       where: {
@@ -392,7 +437,8 @@ export async function prospectingTick(provider = fetchWebsiteProspects) {
       cities,
       categories,
       exclude: existing.map((row) => row.sourceRecordId!),
-      limit: remaining,
+      limit: Math.min(50, remaining * 2),
+      requireMissingWebsite: config.requireMissingWebsite,
     });
     await controlDb.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${search.workspaceId}))`;
@@ -439,6 +485,10 @@ export async function prospectingTick(provider = fetchWebsiteProspects) {
             : []),
         ].join(" ");
         return (
+          matchesProspectingScope(
+            { ...candidate, websiteEvidence: candidate.evidence },
+            current,
+          ) &&
           matchesBusinessType(search.industry, facts) &&
           allowedCategories.some((value) =>
             matchesBusinessType(value, facts),
@@ -449,9 +499,11 @@ export async function prospectingTick(provider = fetchWebsiteProspects) {
           )
         );
       });
-      const freshReady = await tx.platformLead.count({
-        where: { workspaceId: search.workspaceId, ...readyLeadWhere },
-      });
+      const freshReady = await countReadyProspects(
+        tx,
+        search.workspaceId,
+        current,
+      );
       const freshUsed = await tx.platformLead.count({
         where: {
           workspaceId: search.workspaceId,
@@ -472,7 +524,7 @@ export async function prospectingTick(provider = fetchWebsiteProspects) {
         ),
         tx,
       );
-      const summary = `${added} new website opportunities prepared from ${found.checked} public listings checked.`;
+      const summary = `${added} new sales prospects prepared from ${found.checked} public listings checked.`;
       await tx.platformProspectSearch.update({
         where: { id: search.id },
         data: {
@@ -490,6 +542,7 @@ export async function prospectingTick(provider = fetchWebsiteProspects) {
           lastRunAt: new Date(),
           lastStatus: "COMPLETED",
           lastError: null,
+          nextRunAt: new Date(Date.now() + (added > 0 ? 5 : 60) * 60000),
         },
       });
       await tx.platformActivity.create({
@@ -515,7 +568,12 @@ export async function prospectingTick(provider = fetchWebsiteProspects) {
     });
     await controlDb.platformProspectingConfig.updateMany({
       where: { businessId: search.workspaceId },
-      data: { lastRunAt: new Date(), lastStatus: "FAILED", lastError: error },
+      data: {
+        lastRunAt: new Date(),
+        lastStatus: "FAILED",
+        lastError: error,
+        nextRunAt: new Date(Date.now() + 60 * 60000),
+      },
     });
   }
   return true;

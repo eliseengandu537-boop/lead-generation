@@ -1,5 +1,5 @@
 "use client";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { signOut } from "next-auth/react";
 import type { Device, Call } from "@twilio/voice-sdk";
 import {
@@ -46,6 +46,7 @@ import {
   businessSuggestions,
   matchesBusinessType,
   matchesSouthAfricanArea,
+  matchesProspectingScope,
 } from "@/platform/calling/prospect-search";
 
 const tabs = [
@@ -69,7 +70,9 @@ const allowedPhone = (lead: RecordValue) =>
   !["ARCHIVED", "UNSUBSCRIBED"].includes(text(lead.status));
 const readyLead = (lead: RecordValue) =>
   allowedPhone(lead) &&
-  lead.websitePresence === "NO_WEBSITE_LISTED" &&
+  ["NO_WEBSITE_LISTED", "WEBSITE_LISTED"].includes(
+    text(lead.websitePresence),
+  ) &&
   lead.salesQualification === "UNREVIEWED";
 const timestamp = (value: unknown) =>
   value ? new Date(String(value)).getTime() : 0;
@@ -200,10 +203,19 @@ export default function CallerDashboard() {
     bookings = rows(data.bookings);
   const activeRecord = calls.find((call) => call.id === active?.callId),
     activeLead = leads.find((lead) => lead.id === activeRecord?.leadId);
-  const ready = leads.filter(readyLead),
-    callbacks = leads.filter(
-      (lead) => allowedPhone(lead) && lead.salesQualification === "CALLBACK",
-    );
+  const ready = useMemo(
+    () =>
+      rows(data.leads).filter(
+        (lead) =>
+          readyLead(lead) &&
+          matchesProspectingScope(lead, object(data.prospecting)),
+      ),
+    [data.leads, data.prospecting],
+  );
+  const readyIds = new Set(ready.map((lead) => lead.id));
+  const callbacks = leads.filter(
+    (lead) => allowedPhone(lead) && lead.salesQualification === "CALLBACK",
+  );
   const next = [
     ...callbacks
       .filter((lead) => timestamp(lead.callbackAt) <= Date.now())
@@ -216,7 +228,7 @@ export default function CallerDashboard() {
         filter === "ALL" ||
         (filter === "CALLBACK"
           ? lead.salesQualification === "CALLBACK"
-          : readyLead(lead)),
+          : readyIds.has(lead.id)),
     )
     .filter((lead) =>
       [lead.company, lead.name, lead.phone, lead.location]
@@ -493,7 +505,9 @@ export default function CallerDashboard() {
           value={
             lead.websitePresence === "NO_WEBSITE_LISTED"
               ? "NO_WEBSITE_LISTED"
-              : lead.salesQualification
+              : lead.websitePresence === "WEBSITE_LISTED"
+                ? "WEBSITE_LISTED"
+                : lead.salesQualification
           }
         />
       </div>
@@ -529,11 +543,16 @@ export default function CallerDashboard() {
           <li>How do customers book or enquire at the moment?</li>
           <li>Would a short website consultation with Concrete help?</li>
         </ul>
-        {lead.websitePresence === "NO_WEBSITE_LISTED" && (
+        {["NO_WEBSITE_LISTED", "WEBSITE_LISTED"].includes(
+          text(lead.websitePresence),
+        ) && (
           <small>
             Source: Overture Maps places ·{" "}
-            {text(object(lead.websiteEvidence).release)}. No website was listed;
-            confirm with the owner.
+            {text(object(lead.websiteEvidence).release)}.{" "}
+            {lead.websitePresence === "NO_WEBSITE_LISTED"
+              ? "No website was listed; confirm with the owner."
+              : "A website is listed in the source."}{" "}
+            Contact details and buying interest need confirmation on the call.
           </small>
         )}
       </details>
@@ -845,6 +864,48 @@ export default function CallerDashboard() {
                       </div>
                     ))}
                   </div>
+                  <section
+                    className="surface caller-daily-targets"
+                    aria-label="Daily sales targets"
+                  >
+                    <div>
+                      <h3>Today’s sales targets</h3>
+                      <p>
+                        South African time · Work towards your goals using
+                        actual saved activity.
+                      </p>
+                    </div>
+                    <div className="caller-target-grid">
+                      {[
+                        [
+                          "New prospects collected",
+                          number(object(prospecting.today).newLeads),
+                          number(prospecting.dailyLimit) || 30,
+                        ],
+                        [
+                          "Call outcomes logged",
+                          number(object(prospecting.today).callsLogged),
+                          number(prospecting.dailyCallTarget) || 100,
+                        ],
+                      ].map(([name, count, target]) => (
+                        <div key={String(name)}>
+                          <span>{String(name)}</span>
+                          <strong>
+                            {Number(count)} <small>/ {Number(target)}</small>
+                          </strong>
+                          <progress
+                            aria-label={`${name} daily progress`}
+                            value={Math.min(Number(count), Number(target))}
+                            max={Number(target)}
+                          />
+                        </div>
+                      ))}
+                    </div>
+                    <small>
+                      Phone outcomes are caller-reported. A listed number does
+                      not establish buying interest or a qualified lead.
+                    </small>
+                  </section>
                   <div className="caller-journey">
                     <span>
                       <b>1</b>Find ready leads
@@ -879,7 +940,7 @@ export default function CallerDashboard() {
                         detail={
                           running
                             ? "Public business research is in progress. Ready leads appear automatically when it finishes."
-                            : "Find businesses across South Africa with phone numbers and no website listed."
+                            : `Find businesses across South Africa with public phone numbers${prospecting.requireMissingWebsite === false ? ", with or without websites" : " and no website listed"}.`
                         }
                         action={
                           <div className="caller-actions">
@@ -951,7 +1012,7 @@ export default function CallerDashboard() {
                   <section className="surface">
                     <SectionHeading
                       title="Find your next website opportunity"
-                      detail="Type any business category and a South African town, suburb or province. Leave the type blank for all businesses; South Africa searches nationwide. Listings need a phone number and no website listed."
+                      detail={`Type a business category and a South African town, suburb or province. Leave the type blank to use your sales niches; South Africa searches nationwide. ${prospecting.requireMissingWebsite === false ? "Businesses with and without websites are included." : "Listings need a phone number and no website listed."}`}
                     />
                     <form
                       className="caller-research-toolbar"

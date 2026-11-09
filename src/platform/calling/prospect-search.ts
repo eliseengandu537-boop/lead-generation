@@ -43,26 +43,41 @@ export const provinceDefinitions = [
     aliases: ["NC", "Northern Cape", "ZA-NC"],
   },
 ] as const;
-export const businessSuggestions = [
-  "Restaurants",
-  "Beauty",
-  "Plumbers",
+export const salesNiches = [
+  "Construction",
   "Electricians",
-  "Dentists",
-  "Hair salons",
-  "Car repair",
-  "Construction companies",
-  "Accountants",
-  "Lawyers",
-  "Cleaning services",
-  "Guest houses",
+  "Plumbers",
+  "Auto spares",
+  "Shopping centres",
+  "Real estate",
   "Hardware stores",
-  "Bakeries",
-  "Gyms",
-  "Real estate agencies",
-  "Florists",
-  "Veterinarians",
+  "Steel suppliers",
+  "Scrap yards",
+  "Engineering",
 ];
+export const businessSuggestions = Array.from(
+  new Set([
+    ...salesNiches,
+    "Restaurants",
+    "Beauty",
+    "Plumbers",
+    "Electricians",
+    "Dentists",
+    "Hair salons",
+    "Car repair",
+    "Construction companies",
+    "Accountants",
+    "Lawyers",
+    "Cleaning services",
+    "Guest houses",
+    "Hardware stores",
+    "Bakeries",
+    "Gyms",
+    "Real estate agencies",
+    "Florists",
+    "Veterinarians",
+  ]),
+);
 export const areaSuggestions = [
   "South Africa",
   ...provinceDefinitions.map((row) => row.name),
@@ -146,6 +161,44 @@ const synonyms: Record<string, string[]> = {
   accountant: ["accountant", "accounting"],
   "guest house": ["guest house", "guesthouse", "bed breakfast"],
   "real estate": ["real estate", "estate agent"],
+  "auto spare": [
+    "auto part",
+    "car part",
+    "motor spare",
+    "automotive part",
+    "vehicle part",
+    "spare part",
+    "auto accessory",
+  ],
+  "shopping centre": [
+    "shopping centre",
+    "shopping center",
+    "shopping mall",
+    "mall",
+  ],
+  "hardware store": ["hardware", "building material", "building supply"],
+  "steel supplier": [
+    "steel",
+    "metal supplier",
+    "steel fabricator",
+    "metalwork",
+  ],
+  "scrap yard": [
+    "scrap",
+    "scrapyard",
+    "junkyard",
+    "salvage yard",
+    "metal recycling",
+    "recycling center",
+    "recycling centre",
+  ],
+  engineering: [
+    "engineering",
+    "engineer",
+    "machine shop",
+    "machining",
+    "fabrication",
+  ],
   gym: ["gym", "fitness"],
   veterinarian: ["veterinarian", "veterinary", "vet"],
 };
@@ -170,6 +223,8 @@ export function businessTermGroups(value: string): string[][] {
               "business",
               "companie",
               "company",
+              "agencie",
+              "agency",
               "service",
               "the",
               "and",
@@ -194,6 +249,12 @@ export function matchesBusinessType(value: string, facts: string) {
     )
   );
 }
+// Require category evidence for these niches: a mall branch or a craft shop
+// named "Scrap Shop" is not a shopping centre or an industrial scrap yard.
+export const categoryOnlyBusinessType = (value: string) =>
+  /^(shopping (centres?|centers?|malls?)|malls?|steel suppliers?|scrap yards?)$/.test(
+    normalizedSearch(value),
+  );
 export type ProspectAddress = {
   country?: string;
   region?: string;
@@ -222,4 +283,55 @@ export function matchesSouthAfricanArea(
             haystack.includes(normalizedSearch(selected.name))
         : haystack.includes(normalizedSearch(part));
     });
+}
+
+export function matchesProspectingScope(
+  lead: {
+    company?: unknown;
+    industry?: unknown;
+    location?: unknown;
+    websitePresence?: unknown;
+    websiteEvidence?: unknown;
+  },
+  config: {
+    categories?: unknown;
+    cities?: unknown;
+    requireMissingWebsite?: unknown;
+  },
+) {
+  const evidence =
+    lead.websiteEvidence && typeof lead.websiteEvidence === "object"
+      ? (lead.websiteEvidence as Record<string, unknown>)
+      : {};
+  const address =
+    evidence.address && typeof evidence.address === "object"
+      ? (evidence.address as ProspectAddress)
+      : {};
+  const categoryFacts = [
+    lead.industry,
+    evidence.category,
+    ...(Array.isArray(evidence.categoryHierarchy)
+      ? evidence.categoryHierarchy
+      : []),
+  ].join(" ");
+  const facts = [lead.company, categoryFacts].join(" ");
+  const categories = Array.isArray(config.categories)
+    ? config.categories.map(String)
+    : ["ALL"];
+  const areas = Array.isArray(config.cities)
+    ? config.cities.map(String)
+    : ["South Africa"];
+  return (
+    (config.requireMissingWebsite === false ||
+      lead.websitePresence === "NO_WEBSITE_LISTED") &&
+    categories.some((value) =>
+      matchesBusinessType(
+        value,
+        categoryOnlyBusinessType(value) ? categoryFacts : facts,
+      ),
+    ) &&
+    areas.some((value) =>
+      matchesSouthAfricanArea(value, address, String(lead.location || "")),
+    )
+  );
 }

@@ -164,21 +164,23 @@ model PlatformLead {
 }
 
 model PlatformProspectingConfig {
-  businessId       String               @id
-  enabled          Boolean              @default(false)
-  categories       Json                 @default("[\"Restaurants\",\"Beauty\"]")
-  cities           Json                 @default("[\"Johannesburg\",\"Pretoria\",\"Sandton\",\"Centurion\",\"Midrand\",\"Benoni\",\"Boksburg\",\"Roodepoort\"]")
-  dailyLimit       Int                  @default(30)
-  maxQueue         Int                  @default(150)
-  meetingHostId    String?
-  notifyAdminEmail Boolean              @default(true)
-  nextRunAt        DateTime             @default(now())
-  lastRunAt        DateTime?
-  lastStatus       String               @default("NOT_STARTED")
-  lastError        String?
-  updatedBy        String?
-  updatedAt        DateTime             @updatedAt
-  organization     PlatformOrganization @relation(fields: [businessId], references: [workspaceId], onDelete: Cascade)
+  businessId            String               @id
+  enabled               Boolean              @default(false)
+  categories            Json                 @default("[\"Restaurants\",\"Beauty\"]")
+  cities                Json                 @default("[\"Johannesburg\",\"Pretoria\",\"Sandton\",\"Centurion\",\"Midrand\",\"Benoni\",\"Boksburg\",\"Roodepoort\"]")
+  dailyLimit            Int                  @default(30)
+  dailyCallTarget       Int                  @default(100)
+  requireMissingWebsite Boolean              @default(true)
+  maxQueue              Int                  @default(150)
+  meetingHostId         String?
+  notifyAdminEmail      Boolean              @default(true)
+  nextRunAt             DateTime             @default(now())
+  lastRunAt             DateTime?
+  lastStatus            String               @default("NOT_STARTED")
+  lastError             String?
+  updatedBy             String?
+  updatedAt             DateTime             @updatedAt
+  organization          PlatformOrganization @relation(fields: [businessId], references: [workspaceId], onDelete: Cascade)
 }
 
 model PlatformProspectSearch {

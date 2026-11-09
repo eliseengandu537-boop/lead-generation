@@ -16,6 +16,8 @@ import {
 import { browserCallToken } from "./voice";
 import { meetingHost, notifyBooking } from "./bookings";
 import { readyLeadWhere } from "./prospecting";
+import { gautengDayStart } from "./prospect-options";
+import { matchesProspectingScope } from "./prospect-search";
 
 const leadInput = z.object({
   company: z.string().trim().min(1).max(240),
@@ -204,37 +206,63 @@ export async function readCallerWorkspace(workspaceId: string) {
       }),
     ]),
   ]);
-  const [prospectConfig, prospectSearches, readyCount] = await Promise.all([
-    controlDb.platformProspectingConfig.findUnique({
-      where: { businessId: workspaceId },
-      select: {
-        enabled: true,
-        lastRunAt: true,
-        lastStatus: true,
-        categories: true,
-        cities: true,
-      },
-    }),
-    db.platformProspectSearch.findMany({
-      where: user.agencyAdmin
-        ? {}
-        : { OR: [{ actorId: user.id }, { actorId: null }] },
-      select: {
-        id: true,
-        status: true,
-        industry: true,
-        city: true,
-        added: true,
-        summary: true,
-        error: true,
-        createdAt: true,
-        completedAt: true,
-      },
-      orderBy: { createdAt: "desc" },
-      take: 8,
-    }),
-    db.platformLead.count({ where: { ...readyLeadWhere, ...owned } }),
-  ]);
+  const [prospectConfig, prospectSearches, readyLeads, newToday, callsToday] =
+    await Promise.all([
+      controlDb.platformProspectingConfig.findUnique({
+        where: { businessId: workspaceId },
+        select: {
+          enabled: true,
+          lastRunAt: true,
+          lastStatus: true,
+          categories: true,
+          cities: true,
+          dailyLimit: true,
+          dailyCallTarget: true,
+          requireMissingWebsite: true,
+        },
+      }),
+      db.platformProspectSearch.findMany({
+        where: user.agencyAdmin
+          ? {}
+          : { OR: [{ actorId: user.id }, { actorId: null }] },
+        select: {
+          id: true,
+          status: true,
+          industry: true,
+          city: true,
+          added: true,
+          summary: true,
+          error: true,
+          createdAt: true,
+          completedAt: true,
+        },
+        orderBy: { createdAt: "desc" },
+        take: 8,
+      }),
+      db.platformLead.findMany({
+        where: { ...readyLeadWhere, ...owned },
+        select: {
+          company: true,
+          industry: true,
+          location: true,
+          websitePresence: true,
+          websiteEvidence: true,
+        },
+      }),
+      db.platformLead.count({
+        where: {
+          sourceKind: "OVERTURE",
+          createdAt: { gte: gautengDayStart() },
+        },
+      }),
+      db.platformCall.count({
+        where: {
+          ...(user.agencyAdmin ? {} : { callerId: user.id }),
+          outcome: { not: "UNRECORDED" },
+          endedAt: { gte: gautengDayStart() },
+        },
+      }),
+    ]);
   return {
     user,
     business: {
@@ -268,7 +296,9 @@ export async function readCallerWorkspace(workspaceId: string) {
       : {}),
     totals: {
       leads: totals[0],
-      ready: readyCount,
+      ready: readyLeads.filter((lead) =>
+        matchesProspectingScope(lead, prospectConfig || {}),
+      ).length,
       qualified: totals[1],
       callsLogged: totals[2],
       bookings: totals[3],
@@ -292,6 +322,10 @@ export async function readCallerWorkspace(workspaceId: string) {
       status: prospectConfig?.lastStatus || "NOT_STARTED",
       categories: prospectConfig?.categories || ["ALL"],
       cities: prospectConfig?.cities || ["South Africa"],
+      dailyLimit: prospectConfig?.dailyLimit || 30,
+      dailyCallTarget: prospectConfig?.dailyCallTarget || 100,
+      requireMissingWebsite: prospectConfig?.requireMissingWebsite ?? true,
+      today: { newLeads: newToday, callsLogged: callsToday },
       searches: prospectSearches,
     },
   };
