@@ -44,8 +44,6 @@ import { CallerMeeting } from "./caller-meeting";
 import {
   areaSuggestions,
   businessSuggestions,
-  matchesBusinessType,
-  matchesSouthAfricanArea,
   matchesProspectingScope,
 } from "@/platform/calling/prospect-search";
 
@@ -237,24 +235,11 @@ export default function CallerDashboard() {
         .includes(query.toLowerCase()),
     )
     .filter((lead) =>
-      matchesBusinessType(
-        industry,
-        [
-          lead.company,
-          lead.industry,
-          object(lead.websiteEvidence).category,
-          ...(Array.isArray(object(lead.websiteEvidence).categoryHierarchy)
-            ? (object(lead.websiteEvidence).categoryHierarchy as unknown[])
-            : []),
-        ].join(" "),
-      ),
-    )
-    .filter((lead) =>
-      matchesSouthAfricanArea(
-        city,
-        object(object(lead.websiteEvidence).address),
-        text(lead.location),
-      ),
+      matchesProspectingScope(lead, {
+        categories: [industry],
+        cities: [city],
+        requireMissingWebsite: false,
+      }),
     );
   const searches = rows(prospecting.searches),
     running = searches.find((run) =>
