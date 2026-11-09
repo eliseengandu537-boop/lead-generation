@@ -173,6 +173,12 @@ export default function CallCentre() {
           })),
         },
         {
+          name: "calendlyUrl",
+          label: "Calendly booking link (optional)",
+          value: text(config.calendlyUrl, ""),
+          placeholder: "https://calendly.com/your-name/30min",
+        },
+        {
           name: "notifyAdminEmail",
           label:
             "Also email administrators when a meeting is booked or updated",
@@ -198,6 +204,7 @@ export default function CallCentre() {
           requireMissingWebsite: Boolean(fields.requireMissingWebsite),
           maxQueue: Number(fields.maxQueue),
           meetingHostId: fields.meetingHostId,
+          calendlyUrl: String(fields.calendlyUrl || ""),
           notifyAdminEmail: Boolean(fields.notifyAdminEmail),
         }),
     });

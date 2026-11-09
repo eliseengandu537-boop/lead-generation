@@ -567,6 +567,21 @@
   background: #020617a6;
   backdrop-filter: blur(4px);
 }
+.caller-calendly iframe {
+  display: block;
+  width: 100%;
+  height: 680px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+}
+.caller-calendly-links {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 16px 0;
+}
 .caller-meeting header {
   align-items: flex-start;
   margin-bottom: 25px;

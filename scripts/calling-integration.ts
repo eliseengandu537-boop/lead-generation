@@ -948,6 +948,87 @@ async function main() {
     "Sales targets accept 115 leads and 100 calls, include listed websites without granting consent or qualification, and preserve earlier leads outside the ready niche",
   );
   const createdEmail = `calling-new-${suffix}@example.invalid`;
+  const calendlyUrl = "https://calendly.com/tristandearaujo261/30min";
+  await post(colleague, `/api/platform/${b.workspaceId}/caller`, {
+    action: "edit-lead",
+    id: websiteLead.id,
+    name: "Fixture attendee",
+    email: "attendee@example.invalid",
+    requestId: randomUUID(),
+  });
+  const preserved = await controlDb.platformLead.findUniqueOrThrow({
+    where: { id: websiteLead.id },
+  });
+  for (const key of [
+    "company",
+    "phone",
+    "website",
+    "industry",
+    "location",
+    "sourceUrl",
+    "notes",
+  ] as const)
+    assert.equal(preserved[key], websiteLead[key], key);
+  await post(admin, "/api/platform/admin/call-centre", {
+    ...configuration,
+    workspaceId: b.workspaceId,
+    calendlyUrl,
+  });
+  const externalAvailability = await (
+    await colleague(`/api/platform/${b.workspaceId}/caller/availability`)
+  ).json();
+  assert.equal(externalAvailability.provider, "CALENDLY");
+  assert.equal(externalAvailability.schedulingUrl, calendlyUrl);
+  assert.deepEqual(externalAvailability.slots, []);
+  assert.notEqual(
+    (await (await employee(`${path}/availability`)).json()).provider,
+    "CALENDLY",
+  );
+  const bookingsBefore = await controlDb.platformBooking.count({
+    where: { workspaceId: b.workspaceId },
+  });
+  await post(
+    colleague,
+    `/api/platform/${b.workspaceId}/caller`,
+    {
+      action: "book",
+      leadId: websiteLead.id,
+      title: "Must reserve in Calendly",
+      startAt,
+      endAt,
+      timezone: "Africa/Johannesburg",
+      customerAgreed: true,
+      requestId: randomUUID(),
+    },
+    409,
+  );
+  assert.equal(
+    await controlDb.platformBooking.count({
+      where: { workspaceId: b.workspaceId },
+    }),
+    bookingsBefore,
+  );
+  await post(
+    admin,
+    "/api/platform/admin/call-centre",
+    {
+      ...configuration,
+      workspaceId: b.workspaceId,
+      calendlyUrl: "https://calendly.com.evil.invalid/user/30min",
+    },
+    400,
+  );
+  assert.equal(
+    (
+      await controlDb.platformProspectingConfig.findUniqueOrThrow({
+        where: { businessId: b.workspaceId },
+      })
+    ).calendlyUrl,
+    calendlyUrl,
+  );
+  pass(
+    "Calendly is business-scoped, replaces internal slots and rejects local-only bookings without claiming an external reservation",
+  );
   const provisioned = await post(admin, "/api/platform/admin/call-centre", {
     action: "create-caller",
     name: "Provisioned caller",

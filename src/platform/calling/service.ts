@@ -21,14 +21,16 @@ import { matchesProspectingScope } from "./prospect-search";
 
 const leadInput = z.object({
   company: z.string().trim().min(1).max(240),
-  name: z.string().trim().max(160).default(""),
-  email: z.union([z.email(), z.literal("")]).default(""),
-  phone: z.string().trim().max(80).default(""),
-  website: z.union([z.url(), z.literal("")]).default(""),
-  industry: z.string().trim().max(160).default(""),
-  location: z.string().trim().max(240).default(""),
-  sourceUrl: z.union([z.url(), z.literal("")]).default(""),
-  notes: z.string().trim().max(5000).default(""),
+  // Partial edits must preserve fields that were not submitted. Zod defaults
+  // inside a partial object would otherwise clear phone/source/website data.
+  name: z.string().trim().max(160).optional(),
+  email: z.union([z.email(), z.literal("")]).optional(),
+  phone: z.string().trim().max(80).optional(),
+  website: z.union([z.url(), z.literal("")]).optional(),
+  industry: z.string().trim().max(160).optional(),
+  location: z.string().trim().max(240).optional(),
+  sourceUrl: z.union([z.url(), z.literal("")]).optional(),
+  notes: z.string().trim().max(5000).optional(),
 });
 const actionInput = z.discriminatedUnion("action", [
   leadInput
@@ -219,6 +221,7 @@ export async function readCallerWorkspace(workspaceId: string) {
           dailyLimit: true,
           dailyCallTarget: true,
           requireMissingWebsite: true,
+          calendlyUrl: true,
         },
       }),
       db.platformProspectSearch.findMany({
@@ -325,6 +328,7 @@ export async function readCallerWorkspace(workspaceId: string) {
       dailyLimit: prospectConfig?.dailyLimit || 30,
       dailyCallTarget: prospectConfig?.dailyCallTarget || 100,
       requireMissingWebsite: prospectConfig?.requireMissingWebsite ?? true,
+      calendlyUrl: prospectConfig?.calendlyUrl || "",
       today: { newLeads: newToday, callsLogged: callsToday },
       searches: prospectSearches,
     },
@@ -680,6 +684,15 @@ export async function callerAction(workspaceId: string, raw: unknown) {
         };
       }
     } else if (input.action === "book") {
+      const scheduling = await tx.platformProspectingConfig.findUnique({
+        where: { businessId: workspaceId },
+        select: { calendlyUrl: true },
+      });
+      if (scheduling?.calendlyUrl)
+        throw new HttpError(
+          409,
+          "Book this meeting through the connected Calendly calendar. Complete Calendly’s confirmation to reserve the time.",
+        );
       const lead = await scopedLead(tx, workspaceId, input.leadId, user, true);
       const assignedHost = await meetingHost(workspaceId, tx);
       const hostId = input.hostId || assignedHost.id;

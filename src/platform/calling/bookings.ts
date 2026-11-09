@@ -36,6 +36,17 @@ export async function meetingAvailability(
   now = new Date(),
 ) {
   await callerAccess(workspaceId);
+  const scheduling = await controlDb.platformProspectingConfig.findUnique({
+    where: { businessId: workspaceId },
+    select: { calendlyUrl: true },
+  });
+  if (scheduling?.calendlyUrl)
+    return {
+      provider: "CALENDLY",
+      schedulingUrl: scheduling.calendlyUrl,
+      timezone: "Africa/Johannesburg",
+      slots: [],
+    };
   if (
     date &&
     (!/^\d{4}-\d{2}-\d{2}$/.test(date) ||

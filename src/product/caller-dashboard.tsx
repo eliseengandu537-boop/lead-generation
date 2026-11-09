@@ -953,10 +953,21 @@ export default function CallerDashboard() {
                   <section className="surface caller-how-it-works">
                     <h3>What happens after a good call?</h3>
                     <p>
-                      Select <b>Interested — book a meeting</b>. Choose a time
-                      the prospect agreed to, add the contact’s name, and save.
-                      Concrete reserves the slot and notifies your administrator
-                      automatically.
+                      {prospecting.calendlyUrl ? (
+                        <>
+                          Select <b>Interested — book a meeting</b>, add the
+                          prospect’s name and email, then choose an agreed time
+                          in Calendly. Complete Calendly’s confirmation to
+                          reserve the meeting.
+                        </>
+                      ) : (
+                        <>
+                          Select <b>Interested — book a meeting</b>. Choose a
+                          time the prospect agreed to, add the contact’s name,
+                          and save. Concrete reserves the slot and notifies your
+                          administrator automatically.
+                        </>
+                      )}
                     </p>
                     <p className="muted">
                       No website listed means it is missing from the research
@@ -1257,7 +1268,11 @@ export default function CallerDashboard() {
                 <section className="surface">
                   <SectionHeading
                     title="Meetings you arranged"
-                    detail="Your administrator is notified automatically when you book or update a meeting. All times below are South African time (SAST)."
+                    detail={
+                      prospecting.calendlyUrl
+                        ? "New meetings are booked in Calendly. Calendly manages confirmations, cancellations and rescheduling; these bookings are not yet synced into Concrete’s reports."
+                        : "Your administrator is notified automatically when you book or update a meeting. All times below are South African time (SAST)."
+                    }
                   />
                   {bookings.length ? (
                     bookings.map((booking) => (
@@ -1299,8 +1314,16 @@ export default function CallerDashboard() {
                     ))
                   ) : (
                     <Empty
-                      title="Your booked meetings will appear here"
-                      detail="After an interested call, choose Interested — book a meeting, select an agreed time and save. Concrete takes care of the admin notification."
+                      title={
+                        prospecting.calendlyUrl
+                          ? "Your meeting calendar is connected"
+                          : "Your booked meetings will appear here"
+                      }
+                      detail={
+                        prospecting.calendlyUrl
+                          ? "Open a prospect and select Book meeting. Complete the booking in Calendly with the prospect’s email and agreed time."
+                          : "After an interested call, choose Interested — book a meeting, select an agreed time and save. Concrete takes care of the admin notification."
+                      }
                       action={
                         <button onClick={() => setTab("leads")}>
                           Open my calling queue

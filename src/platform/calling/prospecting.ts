@@ -15,6 +15,18 @@ import {
 } from "./prospect-search";
 import { fetchWebsiteProspects, type ProspectCandidate } from "./overture";
 import { phoneNumber } from "./rules";
+import { normalizedCalendlyPage } from "./calendly-options";
+
+export const calendlySchedulingUrl = z.string().transform((value, context) => {
+  const page = normalizedCalendlyPage(value);
+  if (page !== null) return page;
+  context.addIssue({
+    code: "custom",
+    message:
+      "Enter a Calendly event link, such as https://calendly.com/your-name/30min.",
+  });
+  return z.NEVER;
+});
 
 const businessQuery = z
   .string()
@@ -57,6 +69,7 @@ export const prospectConfiguration = z
     requireMissingWebsite: z.boolean().default(true),
     maxQueue: z.number().int().min(10).max(250),
     meetingHostId: z.string().min(1).optional(),
+    calendlyUrl: calendlySchedulingUrl.optional(),
     notifyAdminEmail: z.boolean().default(true),
   })
   .strict();

@@ -173,6 +173,7 @@ model PlatformProspectingConfig {
   requireMissingWebsite Boolean              @default(true)
   maxQueue              Int                  @default(150)
   meetingHostId         String?
+  calendlyUrl           String                       @default("")
   notifyAdminEmail      Boolean              @default(true)
   nextRunAt             DateTime             @default(now())
   lastRunAt             DateTime?
