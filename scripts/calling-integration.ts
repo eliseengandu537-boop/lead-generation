@@ -948,6 +948,177 @@ async function main() {
     "Sales targets accept 115 leads and 100 calls, include listed websites without granting consent or qualification, and preserve earlier leads outside the ready niche",
   );
   const createdEmail = `calling-new-${suffix}@example.invalid`;
+  const queueBusiness = await createBusiness("Calling queue rotation");
+  const queueAgent = await createUser("QueueAgent", false, "CALLER");
+  const queuePeer = await createUser("QueuePeer", false, "CALLER");
+  for (const userId of [queueAgent.id, queuePeer.id])
+    await controlDb.membership.create({
+      data: { workspaceId: queueBusiness.workspaceId, userId, role: "CALLER" },
+    });
+  const queueClient = await login(queueAgent.email),
+    peerClient = await login(queuePeer.email);
+  const queuePath = `/api/platform/${queueBusiness.workspaceId}/caller`;
+  await post(admin, "/api/platform/admin/call-centre", {
+    ...configuration,
+    workspaceId: queueBusiness.workspaceId,
+    enabled: true,
+    categories: ["ALL"],
+    cities: ["South Africa"],
+    dailyLimit: 3,
+    maxQueue: 10,
+    notifyAdminEmail: false,
+  });
+  await controlDb.platformProspectingConfig.update({
+    where: { businessId: queueBusiness.workspaceId },
+    data: { nextRunAt: new Date(Date.now() + 86400000) },
+  });
+  const queueOutcomes = [
+    "CONNECTED",
+    "VOICEMAIL",
+    "WRONG_NUMBER",
+    "CALLBACK",
+    "QUALIFIED",
+    "NOT_QUALIFIED",
+    "DO_NOT_CALL",
+    "NO_ANSWER",
+  ];
+  const rotatingLeads: { id: string }[] = [];
+  for (let index = 0; index < queueOutcomes.length; index++)
+    rotatingLeads.push(
+      await controlDb.platformLead.create({
+        data: {
+          workspaceId: queueBusiness.workspaceId,
+          company: `Queue fixture ${index}`,
+          phone: `+2782555010${index}`,
+          industry: "Beauty",
+          location: "Johannesburg, Gauteng",
+          websitePresence: "NO_WEBSITE_LISTED",
+        },
+      }),
+    );
+  const duplicateNumber = await controlDb.platformLead.create({
+    data: {
+      workspaceId: queueBusiness.workspaceId,
+      company: "Same phone alternate listing",
+      phone: "082 555 0100",
+      industry: "Beauty",
+      location: "Johannesburg, Gauteng",
+      websitePresence: "NO_WEBSITE_LISTED",
+    },
+  });
+  const isolatedPhone = await controlDb.platformLead.create({
+    data: {
+      workspaceId: queueBusiness.workspaceId,
+      company: "A number worked in a different business",
+      phone: "+27821234567",
+      industry: "Beauty",
+      location: "Johannesburg, Gauteng",
+      websitePresence: "NO_WEBSITE_LISTED",
+    },
+  });
+  assert.equal((await (await queueClient(queuePath)).json()).totals.ready, 10);
+  for (let index = 0; index < queueOutcomes.length; index++) {
+    const prepared = await post(queueClient, queuePath, {
+      action: "prepare-call",
+      leadId: rotatingLeads[index].id,
+      mode: "PHONE",
+      requestId: randomUUID(),
+    });
+    if (index === 0)
+      assert.equal(
+        (await (await queueClient(queuePath)).json()).totals.ready,
+        10,
+        "Opening a dialler must not claim a call was made",
+      );
+    const outcomeRequest = {
+      action: "call-outcome",
+      id: prepared.callId,
+      outcome: queueOutcomes[index],
+      notes: "Synthetic queue test; no phone call placed.",
+      ...(queueOutcomes[index] === "CALLBACK"
+        ? { callbackAt: new Date(Date.now() + 86400000).toISOString() }
+        : {}),
+      requestId: randomUUID(),
+    };
+    await post(queueClient, queuePath, outcomeRequest);
+    if (index === 0) await post(queueClient, queuePath, outcomeRequest);
+    const updated = await (await queueClient(queuePath)).json();
+    assert.ok(
+      !updated.readyLeadIds.includes(rotatingLeads[index].id),
+      queueOutcomes[index],
+    );
+    assert.ok(
+      updated.leads.some(
+        (row: { id: string }) => row.id === rotatingLeads[index].id,
+      ),
+      "History must remain accessible",
+    );
+    if (index === 0) {
+      assert.ok(!updated.readyLeadIds.includes(duplicateNumber.id));
+      assert.ok(
+        !(await (await peerClient(queuePath)).json()).readyLeadIds.includes(
+          duplicateNumber.id,
+        ),
+        "Do not repeat a worked number for another caller",
+      );
+    }
+  }
+  const finalQueue = await (await queueClient(queuePath)).json();
+  assert.deepEqual(finalQueue.readyLeadIds, [isolatedPhone.id]);
+  assert.equal(finalQueue.calls.length, 8);
+  assert.equal(finalQueue.totals.callsLogged, 8);
+  assert.ok(
+    finalQueue.leads.filter(
+      (row: { salesQualification: string }) =>
+        row.salesQualification === "CALLBACK",
+    ).length === 2,
+  );
+  assert.ok(
+    (
+      await controlDb.platformProspectingConfig.findUniqueOrThrow({
+        where: { businessId: queueBusiness.workspaceId },
+      })
+    ).nextRunAt <= new Date(),
+  );
+  let refillRuns = 0;
+  await prospectingTick(async () => {
+    refillRuns++;
+    return {
+      checked: 5,
+      candidates: [
+        makeCandidate("worked-number-again", "+27825550100"),
+        makeCandidate("replacement-1", "0815550100"),
+        makeCandidate("replacement-2", "0815550101"),
+        makeCandidate("replacement-3", "0815550102"),
+        makeCandidate("over-daily-limit", "0815550103"),
+      ],
+    };
+  });
+  const refilled = await (await queueClient(queuePath)).json();
+  assert.equal(refillRuns, 1);
+  assert.equal(refilled.totals.ready, 4);
+  assert.equal(refilled.prospecting.today.newLeads, 3);
+  assert.equal(
+    await controlDb.platformLead.count({
+      where: {
+        workspaceId: queueBusiness.workspaceId,
+        sourceRecordId: "OVERTURE:worked-number-again",
+      },
+    }),
+    0,
+  );
+  await controlDb.platformProspectingConfig.update({
+    where: { businessId: queueBusiness.workspaceId },
+    data: { nextRunAt: new Date() },
+  });
+  await prospectingTick(async () => {
+    refillRuns++;
+    throw new Error("The daily cap must prevent another source request");
+  });
+  assert.equal(refillRuns, 1);
+  pass(
+    "Every saved outcome removes the number and alternate listings from Ready leads, preserves history and callbacks, and wakes automatic replacement within the daily cap",
+  );
   const calendlyUrl = "https://calendly.com/tristandearaujo261/30min";
   await post(colleague, `/api/platform/${b.workspaceId}/caller`, {
     action: "edit-lead",

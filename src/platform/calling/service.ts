@@ -15,7 +15,7 @@ import {
 } from "./rules";
 import { browserCallToken } from "./voice";
 import { meetingHost, notifyBooking } from "./bookings";
-import { readyLeadWhere } from "./prospecting";
+import { readyLeadWhere, withoutCalledNumbers } from "./prospecting";
 import { gautengDayStart } from "./prospect-options";
 import { matchesProspectingScope } from "./prospect-search";
 
@@ -245,6 +245,8 @@ export async function readCallerWorkspace(workspaceId: string) {
       db.platformLead.findMany({
         where: { ...readyLeadWhere, ...owned },
         select: {
+          id: true,
+          phone: true,
           company: true,
           industry: true,
           location: true,
@@ -266,6 +268,9 @@ export async function readCallerWorkspace(workspaceId: string) {
         },
       }),
     ]);
+  const ready = (
+    await withoutCalledNumbers(db, workspaceId, readyLeads)
+  ).filter((lead) => matchesProspectingScope(lead, prospectConfig || {}));
   return {
     user,
     business: {
@@ -299,14 +304,13 @@ export async function readCallerWorkspace(workspaceId: string) {
       : {}),
     totals: {
       leads: totals[0],
-      ready: readyLeads.filter((lead) =>
-        matchesProspectingScope(lead, prospectConfig || {}),
-      ).length,
+      ready: ready.length,
       qualified: totals[1],
       callsLogged: totals[2],
       bookings: totals[3],
     },
     leads,
+    readyLeadIds: ready.map((lead) => lead.id),
     calls: calls.map(
       ({ nonceHash: _nonce, requestHash: _request, ...call }) => {
         void _nonce;
@@ -851,6 +855,26 @@ export async function callerAction(workspaceId: string, raw: unknown) {
     });
     return result;
   });
+  if (input.action === "call-outcome" || input.action === "qualify") {
+    // Wake a queue that was paused because it was full. Daily import limits and
+    // source deduplication remain enforced by the research worker.
+    try {
+      await controlDb.platformProspectingConfig.updateMany({
+        where: {
+          businessId: workspaceId,
+          enabled: true,
+          nextRunAt: { gt: new Date() },
+        },
+        data: { nextRunAt: new Date() },
+      });
+    } catch {
+      // The outcome is already committed; a refill failure must not ask callers
+      // to replay their completed action. The scheduled worker will retry.
+      console.error(
+        "Calling queue refill wake-up failed; the saved call outcome is retained.",
+      );
+    }
+  }
   if (input.action === "prepare-call" && input.mode === "BROWSER") {
     const token = await browserCallToken(
       workspaceId,

@@ -66,12 +66,6 @@ const allowedPhone = (lead: RecordValue) =>
   !lead.doNotCall &&
   !lead.unsubscribedAt &&
   !["ARCHIVED", "UNSUBSCRIBED"].includes(text(lead.status));
-const readyLead = (lead: RecordValue) =>
-  allowedPhone(lead) &&
-  ["NO_WEBSITE_LISTED", "WEBSITE_LISTED"].includes(
-    text(lead.websitePresence),
-  ) &&
-  lead.salesQualification === "UNREVIEWED";
 const timestamp = (value: unknown) =>
   value ? new Date(String(value)).getTime() : 0;
 const sastDate = (value: unknown) =>
@@ -201,16 +195,17 @@ export default function CallerDashboard() {
     bookings = rows(data.bookings);
   const activeRecord = calls.find((call) => call.id === active?.callId),
     activeLead = leads.find((lead) => lead.id === activeRecord?.leadId);
-  const ready = useMemo(
+  const readyIds = useMemo(
     () =>
-      rows(data.leads).filter(
-        (lead) =>
-          readyLead(lead) &&
-          matchesProspectingScope(lead, object(data.prospecting)),
+      new Set(
+        Array.isArray(data.readyLeadIds) ? data.readyLeadIds.map(String) : [],
       ),
-    [data.leads, data.prospecting],
+    [data.readyLeadIds],
   );
-  const readyIds = new Set(ready.map((lead) => lead.id));
+  const ready = useMemo(
+    () => rows(data.leads).filter((lead) => readyIds.has(text(lead.id))),
+    [data.leads, readyIds],
+  );
   const callbacks = leads.filter(
     (lead) => allowedPhone(lead) && lead.salesQualification === "CALLBACK",
   );
@@ -226,7 +221,7 @@ export default function CallerDashboard() {
         filter === "ALL" ||
         (filter === "CALLBACK"
           ? lead.salesQualification === "CALLBACK"
-          : readyIds.has(lead.id)),
+          : readyIds.has(text(lead.id))),
     )
     .filter((lead) =>
       [lead.company, lead.name, lead.phone, lead.location]
@@ -397,7 +392,7 @@ export default function CallerDashboard() {
         setNotice(
           outcome === "NO_ANSWER"
             ? "No answer recorded. A follow-up reminder is set for tomorrow."
-            : "Outcome saved. Your next prospect is ready.",
+            : "Outcome saved. This number has left Ready leads; the next prospect is ready.",
         );
       return true;
     } catch (problem) {
@@ -1104,7 +1099,7 @@ export default function CallerDashboard() {
                       {[
                         ["READY", "Ready leads"],
                         ["CALLBACK", "Callbacks"],
-                        ["ALL", "All my leads"],
+                        ["ALL", "All leads & history"],
                       ].map(([value, title]) => (
                         <button
                           key={value}
@@ -1131,7 +1126,7 @@ export default function CallerDashboard() {
                   <p className="muted">
                     {shown.length} prospects ·{" "}
                     {filter === "READY"
-                      ? "A phone number is listed. Confirm the current details when you call."
+                      ? "Numbers leave this list when you save a call outcome. New prospects refill automatically within your daily research limit."
                       : "Only your assigned leads and the available queue are shown."}
                   </p>
                   <div className="caller-prospect-grid">

@@ -80,7 +80,36 @@ export const readyLeadWhere = {
   phone: { not: "" },
   status: { notIn: ["ARCHIVED", "UNSUBSCRIBED"] },
   salesQualification: "UNREVIEWED",
+  calls: { none: { outcome: { not: "UNRECORDED" } } },
 } satisfies Prisma.PlatformLeadWhereInput;
+
+/** Match normalized numbers across duplicate listings and different callers.
+ * A prepared dialler handoff alone is not a completed call attempt. */
+export async function withoutCalledNumbers<T extends { phone: string }>(
+  tx: Prisma.TransactionClient,
+  workspaceId: string,
+  leads: T[],
+) {
+  const worked = await tx.platformCall.findMany({
+    where: { workspaceId, outcome: { not: "UNRECORDED" } },
+    select: { toNumber: true },
+    distinct: ["toNumber"],
+  });
+  const key = (value: string) => {
+    try {
+      return phoneNumber(value);
+    } catch {
+      return null;
+    }
+  };
+  const numbers = new Set(
+    worked.map((row) => key(row.toNumber)).filter(Boolean),
+  );
+  return leads.filter((lead) => {
+    const number = key(lead.phone);
+    return number && !numbers.has(number);
+  });
+}
 
 export async function requestProspectQueue(workspaceId: string, raw: unknown) {
   const { user } = await callerAccess(workspaceId);
@@ -213,10 +242,16 @@ export async function importProspectCandidates(
     }),
   );
   const blocked = await tx.platformCall.findMany({
-    where: { workspaceId, outcome: "DO_NOT_CALL" },
+    where: { workspaceId, outcome: { not: "UNRECORDED" } },
     select: { toNumber: true },
   });
-  blocked.forEach((row) => phones.add(row.toNumber));
+  blocked.forEach((row) => {
+    try {
+      phones.add(phoneNumber(row.toNumber));
+    } catch {
+      /* Ignore incomplete historical numbers. */
+    }
+  });
   const data: Prisma.PlatformLeadCreateManyInput[] = [];
   for (const candidate of candidates) {
     if (
@@ -261,6 +296,7 @@ export async function countReadyProspects(
   const leads = await tx.platformLead.findMany({
     where: { workspaceId, ...readyLeadWhere },
     select: {
+      phone: true,
       company: true,
       industry: true,
       location: true,
@@ -268,7 +304,9 @@ export async function countReadyProspects(
       websiteEvidence: true,
     },
   });
-  return leads.filter((lead) => matchesProspectingScope(lead, config)).length;
+  return (await withoutCalledNumbers(tx, workspaceId, leads)).filter((lead) =>
+    matchesProspectingScope(lead, config),
+  ).length;
 }
 
 export async function prospectingTick(provider = fetchWebsiteProspects) {
