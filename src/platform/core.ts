@@ -4,7 +4,7 @@ import { controlDb, db } from "@/lib/db";
 import { currentUser, HttpError, tenant } from "@/lib/auth";
 import { personalize, encrypt, decrypt, hash } from "@/lib/security";
 import { campaignReviewData } from "./mail/review";
-import { personalizeFollowup } from "./mail/content";
+import { personalizeFollowup, unfilledEmailFields } from "./mail/content";
 import { enqueueJob } from "./jobs";
 import { senderMatchesWebsite } from "./mail/domain";
 import { databaseContext } from "@/lib/tenancy";
@@ -310,17 +310,23 @@ async function composeCampaignReview(
       company: lead.company,
       email: lead.email || "",
     };
+    const subject = personalize(values.subject!, contact);
+    const body = personalize(values.body!, contact);
+    const steps = values.steps.map((step) => ({
+      ...step,
+      subject: personalizeFollowup(step.subject, lead),
+      body: personalizeFollowup(step.body, lead),
+    }));
+    const missing = unfilledEmailFields(subject, body, ...steps.flatMap((step) => [step.subject, step.body]));
+    if (missing.length)
+      blockers.push({ message: `${lead.company}: fill in email fields ${missing.join(", ")} before launch.`, view: "campaigns" });
     return {
       leadId: lead.id,
       company: lead.company,
       email: lead.email,
-      subject: personalize(values.subject!, contact),
-      body: personalize(values.body!, contact),
-      steps: values.steps.map((step) => ({
-        ...step,
-        subject: personalizeFollowup(step.subject, lead),
-        body: personalizeFollowup(step.body, lead),
-      })),
+      subject,
+      body,
+      steps,
     };
   });
   const preview = {
@@ -1143,15 +1149,17 @@ export async function mutateAuthorizedResource(
               company: recipient.lead.company,
               email: recipient.lead.email || "",
             };
+            const subject = hasDraft ? recipient.lead.draftSubject : personalize(existing!.subject, contact);
+            const body = hasDraft ? recipient.lead.draftBody : personalize(existing!.body, contact);
+            const missing = unfilledEmailFields(subject, body, ...z.array(step).parse(existing!.steps)
+              .flatMap((item) => [personalizeFollowup(item.subject, recipient.lead), personalizeFollowup(item.body, recipient.lead)]));
+            if (missing.length)
+              throw new HttpError(409, `${recipient.lead.company}: fill in email fields ${missing.join(", ")} before approval.`);
             await transaction.platformCampaignRecipient.update({
               where: { id: recipient.id },
               data: {
-                subject: hasDraft
-                  ? recipient.lead.draftSubject
-                  : personalize(existing!.subject, contact),
-                body: hasDraft
-                  ? recipient.lead.draftBody
-                  : personalize(existing!.body, contact),
+                subject,
+                body,
                 approvedAt,
                 approvedBy: user.id,
               },

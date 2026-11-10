@@ -7,7 +7,7 @@ import { senderMatchesWebsite } from "./domain";
 import { gmailToken, googleRawMessage } from "./google";
 import { pauseUnsafeCampaign } from "./events";
 import { withinSendingWindow } from "./schedule";
-import { personalizeFollowup } from "./content";
+import { personalizeFollowup, unfilledEmailFields } from "./content";
 
 export class MailDeferredError extends Error {
   constructor(
@@ -91,6 +91,9 @@ export async function sendCampaignMessage(
           : personalizeFollowup(selected.subject, lead);
       const text =
         step === 0 ? selected.body : personalizeFollowup(selected.body, lead);
+      const missing = unfilledEmailFields(subject, text);
+      if (missing.length)
+        throw new Error(`Complete email fields before sending: ${missing.join(", ")}.`);
       const digest = hash(
         JSON.stringify({
           campaignId,

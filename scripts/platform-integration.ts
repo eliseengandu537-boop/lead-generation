@@ -1076,6 +1076,30 @@ async function main() {
   assert.equal(await controlDb.platformUsage.count({ where: { workspaceId: a, operationKey: `claude-draft:${suffix}`, kind: "AI" } }), 1);
   assert.equal((await controlDb.platformOrganization.findUniqueOrThrow({ where: { workspaceId: b } })).encryptedAiKey, null);
   pass("Claude connections stay encrypted and isolated; provider mismatches fail and website evidence produces a saved outreach draft");
+  const importedScript = {
+    name: "Imported script fixture", subject: "Parts in {{city}}",
+    body: "Hi {{name}}, {{company}} has {{reviews}} reviews in {{city}}.",
+    leadIds: [leads[0].id], steps: [],
+  };
+  const previewResponse = await fetch(`${base}/api/platform/${a}/campaigns`, {
+    method: "POST", headers, body: JSON.stringify({ ...importedScript, action: "preview" }),
+  });
+  assert.equal(previewResponse.status, 200);
+  const scriptPreview = await previewResponse.json();
+  assert.ok(scriptPreview.blockers.some((item: { message: string }) => /fill in email fields city, reviews/.test(item.message)));
+  const scriptCreated = await fetch(`${base}/api/platform/${a}/campaigns`, {
+    method: "POST", headers, body: JSON.stringify({ ...importedScript, action: "create" }),
+  });
+  assert.equal(scriptCreated.status, 200);
+  const scriptCampaign = await scriptCreated.json();
+  const scriptApproval = await fetch(`${base}/api/platform/${a}/campaigns`, {
+    method: "POST", headers,
+    body: JSON.stringify({ action: "approve", id: scriptCampaign.id, useCampaignMessage: true }),
+  });
+  assert.equal(scriptApproval.status, 409);
+  assert.match((await scriptApproval.json()).error, /fill in email fields/);
+  assert.equal((await controlDb.platformCampaign.findUniqueOrThrow({ where: { id: scriptCampaign.id } })).status, "DRAFT");
+  pass("imported scripts show incomplete merge fields and cannot be approved until those fields are filled");
   console.log(
     `${checks} integration groups passed. All email and automation network calls were mocked; no real outreach was sent.`,
   );
