@@ -5,7 +5,7 @@ import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { ArrowRight, Check, LoaderCircle, Sparkles } from "lucide-react";
 import { api, text } from "./data";
-import { ConcreteMark } from "./primitives";
+import { MonetticMark } from "./primitives";
 import { ThemeToggle } from "./theme";
 export default function AuthScreen() {
   const search = useSearchParams();
@@ -19,9 +19,9 @@ export default function AuthScreen() {
     <div className="auth-page">
       <aside className="auth-story">
         <Link href="/login" className="brand">
-          <ConcreteMark />
+          <MonetticMark />
           <span>
-            CONCRETE<span className="brand-dot">.</span>
+            MONETTIC<span className="brand-dot">.</span>
           </span>
         </Link>
         <div className="auth-story-content">
@@ -65,13 +65,13 @@ export default function AuthScreen() {
       </aside>
       <main className="auth-main" id="main-content">
         <Link href="/login" className="brand auth-mobile-brand">
-          <ConcreteMark />
-          <span>CONCRETE.</span>
+          <MonetticMark />
+          <span>MONETTIC.</span>
         </Link>
         <div className="auth-topline">
           <ThemeToggle />
           <span>
-            {mode === "login" ? "New to Concrete?" : "Already part of Concrete?"}
+            {mode === "login" ? "New to Monettic?" : "Already part of Monettic?"}
           </span>
           <button
             className="text-button"
@@ -235,7 +235,7 @@ export default function AuthScreen() {
             Need a new verification email?
           </Link>
         </div>
-        <footer>CONCRETE · Better business conversations.</footer>
+        <footer>MONETTIC · Better business conversations.</footer>
       </main>
     </div>
   );

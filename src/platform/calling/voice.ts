@@ -33,6 +33,7 @@ export function voiceUrls(workspaceId: string) {
   return { outgoing: `${base}/outgoing`, status: `${base}/status` };
 }
 function identity(userId: string) {
+  // Existing registered voice clients retain their provider identity.
   return "concrete_" + userId.replace(/[^a-zA-Z0-9_]/g, "");
 }
 

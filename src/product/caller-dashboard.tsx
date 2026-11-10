@@ -33,7 +33,7 @@ import {
 import {
   ActionDialog,
   Badge,
-  ConcreteMark,
+  MonetticMark,
   Empty,
   Loading,
   SectionHeading,
@@ -521,7 +521,7 @@ export default function CallerDashboard() {
         <ul>
           <li>Do you already have a business website?</li>
           <li>How do customers book or enquire at the moment?</li>
-          <li>Would a short website consultation with Concrete help?</li>
+          <li>Would a short website consultation with Monettic help?</li>
         </ul>
         {["NO_WEBSITE_LISTED", "WEBSITE_LISTED"].includes(
           text(lead.websitePresence),
@@ -542,8 +542,8 @@ export default function CallerDashboard() {
     <div className="caller-app">
       <aside className={`caller-sidebar ${mobile ? "is-open" : ""}`}>
         <a className="caller-brand" href="/caller">
-          <ConcreteMark small />
-          CONCRETE.
+          <MonetticMark small />
+          MONETTIC.
         </a>
         <p className="eyebrow">CALLING WORKSPACE</p>
         <nav aria-label="Caller navigation">
@@ -567,7 +567,7 @@ export default function CallerDashboard() {
           ))}
         </nav>
         <div className="caller-sidebar-bottom">
-          <p>{text(user.name, "Concrete caller")}</p>
+          <p>{text(user.name, "Monettic caller")}</p>
           <small>{text(user.email, "")}</small>
           {Boolean(user.agencyAdmin) && (
             <a href="/admin">Back to administration</a>
@@ -596,7 +596,7 @@ export default function CallerDashboard() {
           </button>
           <div>
             <b>
-              Concrete <span className="muted">/ Sales desk</span>
+              Monettic <span className="muted">/ Sales desk</span>
             </b>
             <small className="caller-topbar-caption">
               Prospects, conversations and meetings.
@@ -634,7 +634,7 @@ export default function CallerDashboard() {
         </header>
         <main id="main-content" className="caller-content">
           <SectionHeading
-            eyebrow="CONCRETE SALES"
+            eyebrow="MONETTIC SALES"
             title={
               tab === "overview"
                 ? `Your next meeting starts here.`
@@ -959,7 +959,7 @@ export default function CallerDashboard() {
                         <>
                           Select <b>Interested — book a meeting</b>. Choose a
                           time the prospect agreed to, add the contact’s name,
-                          and save. Concrete reserves the slot and notifies your
+                          and save. Monettic reserves the slot and notifies your
                           administrator automatically.
                         </>
                       )}
@@ -1265,7 +1265,7 @@ export default function CallerDashboard() {
                     title="Meetings you arranged"
                     detail={
                       prospecting.calendlyUrl
-                        ? "New meetings are booked in Calendly. Calendly manages confirmations, cancellations and rescheduling; these bookings are not yet synced into Concrete’s reports."
+                        ? "New meetings are booked in Calendly. Calendly manages confirmations, cancellations and rescheduling; these bookings are not yet synced into Monettic’s reports."
                         : "Your administrator is notified automatically when you book or update a meeting. All times below are South African time (SAST)."
                     }
                   />
@@ -1276,7 +1276,7 @@ export default function CallerDashboard() {
                         key={text(booking.id)}
                       >
                         <div>
-                          <p className="eyebrow">CONCRETE CONSULTATION</p>
+                          <p className="eyebrow">MONETTIC CONSULTATION</p>
                           <h3>{text(object(booking.lead).company)}</h3>
                           <p>
                             <CalendarDays size={15} />{" "}
@@ -1317,7 +1317,7 @@ export default function CallerDashboard() {
                       detail={
                         prospecting.calendlyUrl
                           ? "Open a prospect and select Book meeting. Complete the booking in Calendly with the prospect’s email and agreed time."
-                          : "After an interested call, choose Interested — book a meeting, select an agreed time and save. Concrete takes care of the admin notification."
+                          : "After an interested call, choose Interested — book a meeting, select an agreed time and save. Monettic takes care of the admin notification."
                       }
                       action={
                         <button onClick={() => setTab("leads")}>

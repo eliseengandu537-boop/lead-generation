@@ -1,8 +1,8 @@
-# Concrete
+# Monettic
 
 Multi-tenant business research, lead qualification, approved email campaigns and reply management. This replaces the previous CRM application. All figures come from the new platform's actual records; there is no demonstration mode or sample-business seed.
 
-Live app: [Concrete](https://orbit-lead-generation.onrender.com). Hosting uses Render Free and Neon Free, with automation on the local computer. Real sending still requires the provider and client mailbox configuration below.
+Live app: [Monettic](https://orbit-lead-generation.onrender.com). Hosting uses Render Free and Neon Free, with automation on the local computer. Real sending still requires the provider and client mailbox configuration below.
 
 [Deploy this repository on Render](https://dashboard.render.com/blueprint/new?repo=https://github.com/eliseengandu537-boop/lead-generation). The default Blueprint requests only a free web service. Supply a private connection to a free Neon database, your administrator email and a unique 16+ character password. n8n and the worker run on your computer while it stays online. Free usage limits and provider costs still apply; see [deployment instructions](docs/DEPLOYMENT.md).
 
@@ -27,7 +27,7 @@ Existing user accounts are preserved. Each new business workspace has independen
 
 Clients receive a separate results portal for their leads, campaigns, conversations, website profile and reports. Only platform administrators manage integrations, automation, sending, teams and workspace configuration. Legacy client administrator memberships also use the results portal; they cannot access the operational APIs. New client access uses the CLIENT_VIEWER role.
 
-To create a client login, open **Admin → Clients → Create client login**. Enter the client's name and email, then select their existing business or create a new business. Concrete generates a strong password and displays it in the creation result. Copy or download the details and share them privately with the client; they can sign in immediately. Passwords are stored as bcrypt hashes and cannot be retrieved later. Existing email accounts are not overwritten. Clients can use **Forgot password** to choose a new password through their email account. This action creates portal access only and does not send email or activate campaigns.
+To create a client login, open **Admin → Clients → Create client login**. Enter the client's name and email, then select their existing business or create a new business. Monettic generates a strong password and displays it in the creation result. Copy or download the details and share them privately with the client; they can sign in immediately. Passwords are stored as bcrypt hashes and cannot be retrieved later. Existing email accounts are not overwritten. Clients can use **Forgot password** to choose a new password through their email account. This action creates portal access only and does not send email or activate campaigns.
 
 ## Connect real services
 
@@ -66,8 +66,8 @@ The interface includes persistent light/dark appearances, separate client and ad
 
 ## Caller workspaces
 
-**Admin → Call Centre** creates caller logins, privately connects business websites and configures automatic calling queues. Callers sign in through `/login` and go to `/caller`, with only **My day, Find leads, My calls and My meetings**. They see Concrete branding and their prospects; website setup, client portals and email outreach remain outside their access. **Find leads** accepts any typed business category and a South African town, suburb or province; **South Africa** searches nationwide across all nine provinces. Research prepares public Overture listings with phone numbers and no website listed, without an AI/search key. Source evidence is saved and the caller confirms website needs. The local worker must stay online; admin scope, daily and queue limits apply.
+**Admin → Call Centre** creates caller logins, privately connects business websites and configures automatic calling queues. Callers sign in through `/login` and go to `/caller`, with only **My day, Find leads, My calls and My meetings**. They see Monettic branding and their prospects; website setup, client portals and email outreach remain outside their access. **Find leads** accepts any typed business category and a South African town, suburb or province; **South Africa** searches nationwide across all nine provinces. Research prepares public Overture listings with phone numbers and no website listed, without an AI/search key. Source evidence is saved and the caller confirms website needs. The local worker must stay online; admin scope, daily and queue limits apply.
 
 After an interested call, available South African meeting slots open automatically. Saving a prospect-agreed appointment reserves the host, adds an admin bell notification and optionally queues a transactional admin email. Calendar invitations can be downloaded and shared separately. Admin reporting distinguishes caller-reported phone logs from provider-confirmed browser calls. Client portal logins retain their existing experience.
 
-A normal Vodacom SIM opens a `tel:` phone handoff and records caller-reported outcomes. Browser calling uses an optional, existing Twilio Voice account configured per business in Call Centre; Concrete never buys a calling number automatically. Provider-confirmed call events are reported separately from manual phone logs. See [caller setup and operation](docs/CALL-CENTRE.md) for configuration, verification and remaining service requirements.
+A normal Vodacom SIM opens a `tel:` phone handoff and records caller-reported outcomes. Browser calling uses an optional, existing Twilio Voice account configured per business in Call Centre; Monettic never buys a calling number automatically. Provider-confirmed call events are reported separately from manual phone logs. See [caller setup and operation](docs/CALL-CENTRE.md) for configuration, verification and remaining service requirements.

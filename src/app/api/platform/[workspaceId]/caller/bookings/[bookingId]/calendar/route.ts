@@ -38,7 +38,7 @@ export async function GET(
   return new NextResponse(calendar, {
     headers: {
       "Content-Type": "text/calendar; charset=utf-8",
-      "Content-Disposition": 'attachment; filename="Concrete-appointment.ics"',
+      "Content-Disposition": 'attachment; filename="Monettic-appointment.ics"',
       "Cache-Control": "no-store",
     },
   });

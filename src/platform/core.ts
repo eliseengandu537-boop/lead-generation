@@ -15,7 +15,7 @@ export async function organizationAccess(
   audience: "operations" | "client" = "operations",
 ) {
   const access = await tenant(workspaceId, manage);
-  if (!access.user.agencyAdmin && access.user.staffRole === "CALLER") throw new HttpError(403, "Use your Concrete calling workspace for prospects, calls and meetings.");
+  if (!access.user.agencyAdmin && access.user.staffRole === "CALLER") throw new HttpError(403, "Use your Monettic calling workspace for prospects, calls and meetings.");
   if (audience === "operations" && !access.user.agencyAdmin)
     throw new HttpError(
       403,
@@ -116,7 +116,7 @@ export async function platformSession() {
     user: { ...user, superAdmin: user.agencyAdmin },
     organizations: organizations.map(({ workspace, ...organization }) => ({
       ...(user.staffRole === "CALLER" && !user.agencyAdmin ? { workspaceId: organization.workspaceId } : organization),
-      name: user.staffRole === "CALLER" && !user.agencyAdmin ? "Concrete" : workspace.name,
+      name: user.staffRole === "CALLER" && !user.agencyAdmin ? "Monettic" : workspace.name,
       timezone: workspace.timezone,
       status: workspace.status,
       role: user.agencyAdmin ? "AGENCY_ADMIN" : workspace.memberships[0]?.role,

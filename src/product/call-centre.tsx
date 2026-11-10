@@ -65,7 +65,7 @@ export default function CallCentre() {
         ? `Business access · ${text(caller.name)}`
         : "Create caller login",
       detail:
-        "Callers get a Concrete calling queue, call outcomes and meeting bookings. Connected websites and email outreach stay in your admin dashboard.",
+        "Callers get a Monettic calling queue, call outcomes and meeting bookings. Connected websites and email outreach stay in your admin dashboard.",
       fields: [
         ...(!caller
           ? [
@@ -289,14 +289,14 @@ export default function CallCentre() {
     const url = URL.createObjectURL(
       new Blob(
         [
-          `Concrete caller login\nLogin: ${text(login.url)}\nDashboard: ${window.location.origin}/caller\nEmail: ${text(login.email)}\nPassword: ${text(login.password)}\n\nKeep these details private.\n`,
+          `Monettic caller login\nLogin: ${text(login.url)}\nDashboard: ${window.location.origin}/caller\nEmail: ${text(login.email)}\nPassword: ${text(login.password)}\n\nKeep these details private.\n`,
         ],
         { type: "text/plain" },
       ),
     );
     const anchor = document.createElement("a");
     anchor.href = url;
-    anchor.download = "concrete-caller-login.txt";
+    anchor.download = "monettic-caller-login.txt";
     anchor.click();
     URL.revokeObjectURL(url);
   }

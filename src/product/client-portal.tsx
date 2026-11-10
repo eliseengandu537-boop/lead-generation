@@ -31,7 +31,7 @@ import {
   type RecordValue,
   type SessionView,
 } from "./data";
-import { Badge, ConcreteMark, DetailPanel, Empty, Loading } from "./primitives";
+import { Badge, MonetticMark, DetailPanel, Empty, Loading } from "./primitives";
 import { MetricNumber, TrendChart } from "./charts";
 import { ThemeToggle } from "./theme";
 
@@ -137,11 +137,11 @@ export default function ClientPortal() {
           <Link
             href="/"
             className="portal-brand"
-            aria-label="Concrete client portal"
+            aria-label="Monettic client portal"
           >
-            <ConcreteMark />
+            <MonetticMark />
             <strong>
-              CONCRETE<span>.</span>
+              MONETTIC<span>.</span>
             </strong>
             <small>CLIENT PORTAL</small>
           </Link>
@@ -263,8 +263,8 @@ export default function ClientPortal() {
       </main>
       <footer className="portal-footer">
         <span>
-          <ConcreteMark small />
-          Concrete client portal
+          <MonetticMark small />
+          Monettic client portal
         </span>
         <p>
           Your account team manages your outreach. This is your place to follow

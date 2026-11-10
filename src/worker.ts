@@ -19,7 +19,7 @@ async function main() {
     throw new Error("WORKER_POLL_MS must be between 3000 and 900000");
   await assertTenantDatabase();
   console.log(
-    "Concrete worker started. Public prospecting and admin account emails run directly. Other provider jobs require n8n admission; campaign sending requires client approval.",
+    "Monettic worker started. Public prospecting and admin account emails run directly. Other provider jobs require n8n admission; campaign sending requires client approval.",
   );
   async function loop(name: string, tick: () => Promise<unknown>) {
     while (!stopping) {
@@ -47,7 +47,7 @@ async function main() {
 }
 main().catch(() => {
   console.error(
-    "Concrete worker could not initialize. Check database configuration.",
+    "Monettic worker could not initialize. Check database configuration.",
   );
   process.exitCode = 1;
 });

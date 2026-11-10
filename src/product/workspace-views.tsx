@@ -62,7 +62,7 @@ export function BusinessView({ data, act, canManage, openDialog }: ViewProps) {
       <SectionHeading
         eyebrow="CONTEXT THAT CONNECTS"
         title="Your business, understood."
-        detail="Connect your website so Concrete can understand what you do, who you serve and where your next customers might be."
+        detail="Connect your website so Monettic can understand what you do, who you serve and where your next customers might be."
       />
       <div className="business-layout">
         <div className="surface business-connection">
@@ -182,7 +182,7 @@ export function BusinessView({ data, act, canManage, openDialog }: ViewProps) {
             <br />A lot more relevance.
           </h3>
           <p>
-            The better Concrete understands your business, the more specific
+            The better Monettic understands your business, the more specific
             your research and outreach can be.
           </p>
           <ul className="check-list">
@@ -556,7 +556,7 @@ export function TeamView({ data, act, canManage, openDialog }: ViewProps) {
                 openDialog({
                   title: "Add a teammate",
                   detail:
-                    "Add someone with an existing verified Concrete account. They will only gain access to this business workspace.",
+                    "Add someone with an existing verified Monettic account. They will only gain access to this business workspace.",
                   fields: [
                     {
                       name: "email",
@@ -655,7 +655,7 @@ export function TeamView({ data, act, canManage, openDialog }: ViewProps) {
                               onClick={() =>
                                 openDialog({
                                   title: "Remove workspace access",
-                                  detail: `${text(user.name)} will lose access to this business workspace. Their Concrete account remains available.`,
+                                  detail: `${text(user.name)} will lose access to this business workspace. Their Monettic account remains available.`,
                                   fields: [
                                     {
                                       name: "confirmed",

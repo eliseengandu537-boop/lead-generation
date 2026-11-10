@@ -34,7 +34,7 @@ export function calendlyBookingUrl(
   if (contact.name) url.searchParams.set("name", contact.name);
   if (contact.email) url.searchParams.set("email", contact.email);
   url.searchParams.set("timezone", "Africa/Johannesburg");
-  url.searchParams.set("utm_source", "concrete");
+  url.searchParams.set("utm_source", "monettic");
   url.searchParams.set("utm_medium", "caller");
   if (embedDomain) {
     url.searchParams.set("embed_domain", embedDomain);

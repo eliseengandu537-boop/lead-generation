@@ -68,12 +68,12 @@ export function CallerCalendly({
         <iframe
           ref={frame}
           src={embed}
-          title="Book a meeting with Concrete on Calendly"
+          title="Book a meeting with Monettic on Calendly"
           referrerPolicy="strict-origin-when-cross-origin"
         />
         <p className="muted">
           Calendly manages availability and its configured calendar invitations.
-          Bookings are not yet synced into Concrete’s meeting reports.
+          Bookings are not yet synced into Monettic’s meeting reports.
         </p>
       </div>
     );

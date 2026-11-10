@@ -3,7 +3,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { ArrowRight, Inbox, LoaderCircle, Plus, X } from "lucide-react";
 import { label, object, rows, text, type RecordValue } from "./data";
 
-export function ConcreteMark({ small = false }: { small?: boolean }) {
+export function MonetticMark({ small = false }: { small?: boolean }) {
   return (
     <span className={`orbit-mark ${small ? "small" : ""}`} aria-hidden="true">
       <i />

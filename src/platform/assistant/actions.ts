@@ -129,7 +129,7 @@ export async function prepareCampaignReview(
     status: campaign.status,
     blockers: [...new Set(blockers)],
     footer:
-      "Concrete adds the client's signed unsubscribe link when preparing each message for delivery.",
+      "Monettic adds the client's signed unsubscribe link when preparing each message for delivery.",
   };
 }
 export async function executeAssistantTool(

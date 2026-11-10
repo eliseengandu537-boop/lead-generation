@@ -161,7 +161,7 @@ async function main() {
     (await employee(`/api/platform/${a.workspaceId}/leads`)).status,
     403,
   );
-  assert.equal(firstSession.businesses[0].name, "Concrete");
+  assert.equal(firstSession.businesses[0].name, "Monettic");
   assert.ok(!JSON.stringify(firstSession).includes("agency.example.invalid"));
   const safeSession = await (await employee("/api/platform/session")).json();
   assert.ok(!JSON.stringify(safeSession).includes("agency.example.invalid"));

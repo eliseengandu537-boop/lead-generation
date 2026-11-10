@@ -297,7 +297,7 @@ function Discovery({ data, act, canManage, navigate }: ViewProps) {
               Better connections.
             </h3>
             <p>
-              Concrete uses your website and approved business profile to
+              Monettic uses your website and approved business profile to
               understand what you offer and who would benefit.
             </p>
             <button
@@ -671,7 +671,7 @@ function Leads({ data, act, openDialog, canManage, organization }: ViewProps) {
             )}
           </select>
           <button
-            onClick={() => downloadCsv("concrete-leads.csv", visible)}
+            onClick={() => downloadCsv("monettic-leads.csv", visible)}
             disabled={!visible.length}
           >
             <ArrowDownToLine size={15} />
@@ -2058,7 +2058,7 @@ function Reports({ data, organization }: ViewProps) {
             <button
               onClick={() =>
                 downloadCsv(
-                  "concrete-performance.csv",
+                  "monettic-performance.csv",
                   series.length ? series : [metrics],
                 )
               }

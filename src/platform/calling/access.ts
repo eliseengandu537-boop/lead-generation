@@ -59,8 +59,8 @@ export async function callerSession() {
       name: user.agencyAdmin
         ? business.workspace.name
         : businesses.length > 1
-          ? `Concrete queue ${index + 1}`
-          : "Concrete",
+          ? `Monettic queue ${index + 1}`
+          : "Monettic",
       timezone: business.workspace.timezone,
       ...(user.agencyAdmin
         ? { websiteUrl: business.websiteUrl, canSend: true }

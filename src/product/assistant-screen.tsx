@@ -212,7 +212,7 @@ export default function AssistantScreen({
   }
   function credentialText() {
     const login = object(detail?.data.login);
-    return `Concrete client login\nBusiness: ${text(object(detail?.data.workspace).name)}\nLogin: ${text(login.url)}\nEmail: ${text(login.email)}\nPassword: ${text(login.password)}\n\nShare these details privately with the client.\n`;
+    return `Monettic client login\nBusiness: ${text(object(detail?.data.workspace).name)}\nLogin: ${text(login.url)}\nEmail: ${text(login.email)}\nPassword: ${text(login.password)}\n\nShare these details privately with the client.\n`;
   }
   async function copyLogin() {
     try {
@@ -230,7 +230,7 @@ export default function AssistantScreen({
     );
     const link = document.createElement("a");
     link.href = url;
-    link.download = "concrete-client-login.txt";
+    link.download = "monettic-client-login.txt";
     link.click();
     URL.revokeObjectURL(url);
   }
@@ -268,7 +268,7 @@ export default function AssistantScreen({
     <div className="assistant-page">
       <div className="assistant-heading">
         <div>
-          <p className="eyebrow">CONCRETE AI ASSISTANT</p>
+          <p className="eyebrow">MONETTIC AI ASSISTANT</p>
           <h2>Your AI workspace.</h2>
           <p>
             Chat naturally. Manage clients, leads and campaigns from one place.
@@ -419,7 +419,7 @@ export default function AssistantScreen({
                 <Sparkles size={19} />
               </span>
               <div>
-                <b>Concrete Assistant</b>
+                <b>Monettic Assistant</b>
                 <small>Powered by OpenAI</small>
               </div>
             </div>
@@ -533,7 +533,7 @@ export default function AssistantScreen({
                   <div className="assistant-message claude">
                     <small>
                       <Sparkles size={12} />
-                      Concrete Assistant
+                      Monettic Assistant
                     </small>
                     <p>{text(run.reply, text(run.error))}</p>
                   </div>

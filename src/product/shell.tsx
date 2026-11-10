@@ -33,7 +33,7 @@ import {
   type RecordValue,
   type SessionView,
 } from "./data";
-import { ActionDialog, type Dialog, Loading, ConcreteMark } from "./primitives";
+import { ActionDialog, type Dialog, Loading, MonetticMark } from "./primitives";
 import { ResourceView } from "./views";
 import { ThemeToggle } from "./theme";
 
@@ -55,7 +55,7 @@ const navigation = [
 ];
 const groups = ["INTELLIGENCE", "WORKSPACE"];
 
-export default function ConcreteApp() {
+export default function MonetticApp() {
   const [session, setSession] = useState<SessionView | null>(null);
   const [organizationId, setOrganizationId] = useState("");
   const [tab, setTab] = useState("overview");
@@ -177,7 +177,7 @@ export default function ConcreteApp() {
   }
   function createOrganization() {
     setDialog({
-      title: "Bring your business into Concrete",
+      title: "Bring your business into Monettic",
       detail:
         "Your business gets its own leads, campaigns, email accounts and team.",
       fields: [
@@ -210,10 +210,10 @@ export default function ConcreteApp() {
         />
       )}
       <aside className={`sidebar ${mobile ? "is-open" : ""}`}>
-        <Link href="/" className="brand" aria-label="Concrete home">
-          <ConcreteMark />
+        <Link href="/" className="brand" aria-label="Monettic home">
+          <MonetticMark />
           <span>
-            CONCRETE<span className="brand-dot">.</span>
+            MONETTIC<span className="brand-dot">.</span>
           </span>
         </Link>
         <div className="organization-picker">
@@ -366,8 +366,8 @@ export default function ConcreteApp() {
             <Loading />
           ) : !organization ? (
             <div className="welcome-empty">
-              <ConcreteMark />
-              <p className="eyebrow">WELCOME TO CONCRETE</p>
+              <MonetticMark />
+              <p className="eyebrow">WELCOME TO MONETTIC</p>
               <h1>Your intelligence workspace.</h1>
               <p>
                 Create a business workspace to discover the right prospects and
@@ -394,8 +394,8 @@ export default function ConcreteApp() {
         </main>
         <footer className="workspace-footer">
           <span>
-            <ConcreteMark small />
-            CONCRETE
+            <MonetticMark small />
+            MONETTIC
           </span>
           <p>Business intelligence. Deliberate outreach.</p>
           <span>Private to your organization</span>

@@ -1,4 +1,4 @@
-# Concrete interface system
+# Monettic interface system
 
 The premium redesign uses a midnight navy foundation, soft neutral surfaces and an electric blue accent. Restrained semantic green, amber and red identify recorded states. Typography, spacing, borders, tables and forms share the tokens in `src/app/globals.css`.
 

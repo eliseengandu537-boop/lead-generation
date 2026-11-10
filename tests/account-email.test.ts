@@ -10,7 +10,7 @@ import {
 const message = {
   id: "verification-fixture-one",
   to: "client@example.com",
-  subject: "Verify your Concrete account",
+  subject: "Verify your Monettic account",
   body: "Verify your account using the single-use link.",
 };
 const brevo = {
@@ -41,7 +41,7 @@ test("account email requires the selected provider's key and a valid sender", ()
     accountEmailConfig({
       BREVO_API_KEY: brevo.apiKey,
       IDENTITY_EMAIL_PROVIDER: "BREVO",
-      IDENTITY_FROM_EMAIL: "Concrete <owner@example.com>",
+      IDENTITY_FROM_EMAIL: "Monettic <owner@example.com>",
     }),
     null,
   );
@@ -142,7 +142,7 @@ test("SMTP confirms the intended recipient and keeps uncertain sends out of auto
     }) => {
       attempts++;
       assert.equal(mail.to, message.to);
-      assert.deepEqual(mail.from, { name: "Concrete", address: config.sender });
+      assert.deepEqual(mail.from, { name: "Monettic", address: config.sender });
       identifiers.push(mail.messageId || "");
       return { accepted: [message.to], rejected: [] };
     },
@@ -193,7 +193,7 @@ test("Brevo uses its HTTPS API and stable per-message UUID deduplication", async
     assert.equal(options?.redirect, "error");
     assert.equal(new Headers(options?.headers).get("api-key"), brevo.apiKey);
     const body = JSON.parse(String(options?.body));
-    assert.deepEqual(body.sender, { name: "Concrete", email: brevo.sender });
+    assert.deepEqual(body.sender, { name: "Monettic", email: brevo.sender });
     assert.deepEqual(body.to, [{ email: message.to }]);
     assert.equal(body.textContent, message.body);
     assert.ok(!JSON.stringify(body).includes(brevo.apiKey));
@@ -223,7 +223,7 @@ test("Resend retains its original idempotency key and authorizes only through he
     assert.equal(headers.get("Authorization"), `Bearer ${config.apiKey}`);
     assert.equal(headers.get("Idempotency-Key"), `identity/${message.id}`);
     const body = JSON.parse(String(options?.body));
-    assert.equal(body.from, `Concrete <${config.sender}>`);
+    assert.equal(body.from, `Monettic <${config.sender}>`);
     assert.equal(body.text, message.body);
     return Response.json({ id: "provider-accepted" });
   });

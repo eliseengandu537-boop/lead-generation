@@ -29,16 +29,16 @@ test("booking links prefill the prospect with escaped data, use SAST and do not 
     calendlyBookingUrl(
       page,
       { name: "Owner & Partner", email: "owner+sales@example.com" },
-      "concrete.example",
+      "monettic.example",
     ),
   );
   assert.equal(value.origin + value.pathname, page);
   assert.equal(value.searchParams.get("name"), "Owner & Partner");
   assert.equal(value.searchParams.get("email"), "owner+sales@example.com");
   assert.equal(value.searchParams.get("timezone"), "Africa/Johannesburg");
-  assert.equal(value.searchParams.get("embed_domain"), "concrete.example");
+  assert.equal(value.searchParams.get("embed_domain"), "monettic.example");
   assert.equal(value.searchParams.get("embed_type"), "Inline");
-  assert.equal(value.searchParams.get("utm_source"), "concrete");
+  assert.equal(value.searchParams.get("utm_source"), "monettic");
   assert.ok(!calendlyBookingUrl(page, {}).includes("embed_domain"));
   assert.ok(
     ![...value.searchParams.keys()].some((key) =>

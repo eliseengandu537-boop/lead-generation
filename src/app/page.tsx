@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { currentUser, HttpError } from "@/lib/auth";
-import ConcreteApp from "@/product/shell";
+import MonetticApp from "@/product/shell";
 import ClientPortal from "@/product/client-portal";
 export default async function HomePage({
   searchParams,
@@ -16,5 +16,5 @@ export default async function HomePage({
     if (error instanceof HttpError && error.status === 401) redirect("/login");
     throw error;
   }
-  return <ConcreteApp />;
+  return <MonetticApp />;
 }

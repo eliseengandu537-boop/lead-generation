@@ -114,7 +114,7 @@ async function main() {
     ];
     const link = (node: string) => ({ node, type: "main", index: 0 });
     const workflow = {
-      name: `Concrete · ${kind}`,
+      name: `Monettic · ${kind}`,
       active: false,
       nodes,
       connections: {

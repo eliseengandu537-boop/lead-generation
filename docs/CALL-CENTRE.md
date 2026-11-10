@@ -1,6 +1,6 @@
-# Concrete calling workspace
+# Monettic calling workspace
 
-Callers sign in at `/login` and go directly to `/caller`. Navigation contains **My day, Find leads, My calls and My meetings**. They see Concrete branding, their queue and their own activity. Connected business websites, website profiles, email outreach, client portals and administration are excluded from their UI and API access. Older campaign permissions do not reopen those features. Clients retain their separate results portal.
+Callers sign in at `/login` and go directly to `/caller`. Navigation contains **My day, Find leads, My calls and My meetings**. They see Monettic branding, their queue and their own activity. Connected business websites, website profiles, email outreach, client portals and administration are excluded from their UI and API access. Older campaign permissions do not reopen those features. Clients retain their separate results portal.
 
 ## Administrator setup
 
@@ -25,13 +25,13 @@ Imports deduplicate source IDs and normalized phones within each business, retai
 
 **My day** shows ready leads, logged outcomes, qualified prospects and bookings. Due callbacks come before new leads. **Find leads** filters by niche, area, ready/callback/all accessible records and name/phone search. Callers can add/edit prospects. They work their own or unassigned records in assigned active queues. The first write claims a record; competing claims cannot both succeed. Another caller's assigned leads are excluded.
 
-Choose **Call this business**. A normal Vodacom SIM uses **Open phone dialler**, a tel: handoff to a compatible linked phone or dialler. Concrete cannot place a cellular SIM call itself. Preparing a handoff does not place a call. Phone outcomes are caller-reported, without fabricated provider identifiers or verified durations.
+Choose **Call this business**. A normal Vodacom SIM uses **Open phone dialler**, a tel: handoff to a compatible linked phone or dialler. Monettic cannot place a cellular SIM call itself. Preparing a handoff does not place a call. Phone outcomes are caller-reported, without fabricated provider identifiers or verified durations.
 
 After the conversation, save notes and choose **Interested — book a meeting**, **Call later**, **Not interested**, **No answer** or **Do not call**. Qualification and outcome save together. Callbacks need a future time; no answer creates a reminder for tomorrow. Do-not-call blocks that number, including duplicate leads. Sales qualification cannot grant email permission.
 
 ## Meeting booking and administrator notifications
 
-An interested call opens the booking dialog. Enter the contact name, optional email and notes, select an available 30-minute slot and confirm prospect agreement. Slots use South African time (SAST), weekdays 09:00–17:00, at least 30 minutes ahead and up to 60 days out. The admin-configured host is assigned automatically. Availability considers scheduled Concrete bookings across businesses without disclosing other meetings. External calendars are not connected; manage outside commitments separately.
+An interested call opens the booking dialog. Enter the contact name, optional email and notes, select an available 30-minute slot and confirm prospect agreement. Slots use South African time (SAST), weekdays 09:00–17:00, at least 30 minutes ahead and up to 60 days out. The admin-configured host is assigned automatically. Availability considers scheduled Monettic bookings across businesses without disclosing other meetings. External calendars are not connected; manage outside commitments separately.
 
 Saving reserves the host transactionally, adds the appointment to both dashboards and creates an admin notification. The admin header bell shows unread bookings/updates, polls while visible and opens Call Centre. Notifications are idempotent per booking revision. When account email is configured and the setting enabled, encrypted transactional messages queue for active platform administrators through the account-email worker. This is separate from prospect outreach. Delivery is not claimed before the SMTP/provider result.
 

@@ -81,7 +81,7 @@ export function CallerMeeting({
     >
       <header className="card-heading">
         <div>
-          <p className="eyebrow">CONCRETE MEETINGS</p>
+          <p className="eyebrow">MONETTIC MEETINGS</p>
           <h2 id="caller-meeting-title">
             {availability.provider === "CALENDLY"
               ? "Book with Calendly"
@@ -137,7 +137,7 @@ export function CallerMeeting({
                 endAt: slot.endAt,
                 timezone: "Africa/Johannesburg",
                 notes,
-                location: "Concrete consultation — phone / online meeting",
+                location: "Monettic consultation — phone / online meeting",
                 customerAgreed: true,
                 requestId: requestId.current,
               });
@@ -234,7 +234,7 @@ export function CallerMeeting({
           {slot && (
             <p className="caller-chosen-slot">
               <CalendarDays size={18} />
-              {slotLabel(slot.startAt, true)} SAST · Concrete meeting team
+              {slotLabel(slot.startAt, true)} SAST · Monettic meeting team
             </p>
           )}
           <label className="caller-agreement">

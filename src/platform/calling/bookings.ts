@@ -155,12 +155,12 @@ export async function notifyBooking(
     where: { agencyAdmin: true, disabledAt: null },
     select: { email: true },
   });
-  const body = `${title}\n\n${message}\n\nMeeting: ${booking.title}\nDuration: ${Math.round((booking.endAt.getTime() - booking.startAt.getTime()) / 60000)} minutes\n\nView the booking in Concrete:\n${new URL(process.env.NEXTAUTH_URL || "http://localhost:3100").origin}/admin?section=call-centre\n\nThis is a Concrete booking notification.`;
+  const body = `${title}\n\n${message}\n\nMeeting: ${booking.title}\nDuration: ${Math.round((booking.endAt.getTime() - booking.startAt.getTime()) / 60000)} minutes\n\nView the booking in Monettic:\n${new URL(process.env.NEXTAUTH_URL || "http://localhost:3100").origin}/admin?section=call-centre\n\nThis is a Monettic booking notification.`;
   for (const admin of admins)
     await tx.identityEmail.create({
       data: {
         to: admin.email,
-        subject: `Concrete: ${title} · ${company}`
+        subject: `Monettic: ${title} · ${company}`
           .replace(/[\r\n]/g, " ")
           .slice(0, 240),
         encryptedBody: encrypt(body),

@@ -33,10 +33,10 @@ export async function identityToken(
       to: email,
       subject:
         purpose === "VERIFY"
-          ? "Verify your business account"
-          : "Reset your password",
+          ? "Verify your Monettic account"
+          : "Reset your Monettic password",
       encryptedBody: encrypt(
-        `${purpose === "VERIFY" ? "Verify your email to activate your workspace" : "Reset your password"}:\n\n${url}\n\nIf you did not request this, ignore this message.`,
+        `${purpose === "VERIFY" ? "Verify your email to activate your Monettic workspace" : "Reset your Monettic password"}:\n\n${url}\n\nIf you did not request this, ignore this message.`,
       ),
     },
   });

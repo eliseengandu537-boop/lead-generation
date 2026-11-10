@@ -32,7 +32,7 @@ async function main() {
   await waitForRenderDatabase(env);
   if (stopping) return;
   console.log(
-    "Concrete hosted worker starting. Keep this computer awake for automatic leads and queued admin notifications.",
+    "Monettic hosted worker starting. Keep this computer awake for automatic leads and queued admin notifications.",
   );
   child = spawn(process.execPath, ["--import", "tsx", "src/worker.ts"], {
     env,
@@ -49,7 +49,7 @@ async function main() {
 }
 main().catch(() => {
   console.error(
-    "Concrete hosted worker could not start or stopped. Check its private configuration and database connectivity.",
+    "Monettic hosted worker could not start or stopped. Check its private configuration and database connectivity.",
   );
   process.exitCode = 1;
 });

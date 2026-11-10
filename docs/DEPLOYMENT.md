@@ -2,7 +2,7 @@
 
 The application needs a Node web server, PostgreSQL, n8n and a Node queue worker. The selected $0 hosting setup places the web app on Render Free and the database on Neon Free; n8n and the worker run on the user's computer. Automation runs only while that computer is awake and the worker is running. A static website host cannot run this application.
 
-The deployed app is [Concrete](https://orbit-lead-generation.onrender.com). Hosted health, administrator sign-in, desktop/mobile rendering and a complete queued report through local n8n/worker have been verified. Local login details are stored in the ignored `.local/hosted-admin-login.txt`; local n8n login details are in `.local/local-automation-login.txt`. Secrets are not committed. Provider setup below is still required for real email sending.
+The deployed app is [Monettic](https://orbit-lead-generation.onrender.com). Hosted health, administrator sign-in, desktop/mobile rendering and a complete queued report through local n8n/worker have been verified. Local login details are stored in the ignored `.local/hosted-admin-login.txt`; local n8n login details are in `.local/local-automation-login.txt`. Secrets are not committed. Provider setup below is still required for real email sending.
 
 ## Server setup
 
@@ -22,7 +22,7 @@ After signing in, remove `BOOTSTRAP_ADMIN_PASSWORD` from the web service's envir
 
 Account email supports Resend and Brevo through their HTTPS APIs. Select `IDENTITY_EMAIL_PROVIDER=RESEND` with `RESEND_API_KEY`, or `IDENTITY_EMAIL_PROVIDER=BREVO` with `BREVO_API_KEY`. Set `IDENTITY_FROM_EMAIL` to the plain, verified sender email address. Configure the same provider and sender privately on Render and in `.local/hosted-worker.env`, redeploy the web service, and restart the local worker. Account registration requires these settings; the local worker must be online to deliver verification and reset links.
 
-Resend requires a verified domain. Brevo can temporarily rewrite a verified Gmail sender to its own sending domain; account and transactional sending activation still apply. Register at https://onboarding.brevo.com/, verify the account, add a sender named Concrete, and verify its email. Create an API key with transactional sending permissions, not an SMTP key. Never publish provider keys or enter them in chat. Provider acceptance must be checked with a real test, and inbox receipt remains a separate check.
+Resend requires a verified domain. Brevo can temporarily rewrite a verified Gmail sender to its own sending domain; account and transactional sending activation still apply. Register at https://onboarding.brevo.com/, verify the account, add a sender named Monettic, and verify its email. Create an API key with transactional sending permissions, not an SMTP key. Never publish provider keys or enter them in chat. Provider acceptance must be checked with a real test, and inbox receipt remains a separate check.
 
 Keep pending account email drained or expired before changing providers. Brevo retries expire after ten minutes, inside its provider deduplication period; Resend retries expire after six hours. After an expired email, request a fresh verification/reset link. This setting controls account emails only; client campaign mail still uses each client's authorised mailbox.
 

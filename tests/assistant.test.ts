@@ -24,7 +24,7 @@ test("Claude authentication stays in headers and only defined application tools 
   const result = await requestClaude(
     { key, model: "claude-sonnet-5-5" },
     {
-      system: "Concrete assistant",
+      system: "Monettic assistant",
       messages: [{ role: "user", content: "Show my clients" }],
       tools: assistantTools,
     },

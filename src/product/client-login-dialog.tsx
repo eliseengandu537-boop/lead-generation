@@ -37,7 +37,7 @@ export function ClientLoginDialog({
   const login = object(result?.login);
   function loginText() {
     return [
-      "CONCRETE — CLIENT LOGIN",
+      "MONETTIC — CLIENT LOGIN",
       "",
       `Business: ${text(object(result?.workspace).name)}`,
       `Login: ${text(login.url)}`,
@@ -65,7 +65,7 @@ export function ClientLoginDialog({
     );
     const link = document.createElement("a");
     link.href = url;
-    link.download = `Concrete-client-login-${text(login.email).replace(/[^a-zA-Z0-9.-]/g, "_")}.txt`;
+    link.download = `Monettic-client-login-${text(login.email).replace(/[^a-zA-Z0-9.-]/g, "_")}.txt`;
     link.click();
     window.setTimeout(() => URL.revokeObjectURL(url), 1000);
   }

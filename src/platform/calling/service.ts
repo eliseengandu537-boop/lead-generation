@@ -275,7 +275,7 @@ export async function readCallerWorkspace(workspaceId: string) {
     user,
     business: {
       workspaceId,
-      name: user.agencyAdmin ? workspace.name : "Concrete",
+      name: user.agencyAdmin ? workspace.name : "Monettic",
       timezone: workspace.timezone,
       ...(user.agencyAdmin
         ? {
@@ -703,7 +703,7 @@ export async function callerAction(workspaceId: string, raw: unknown) {
       if (!user.agencyAdmin && hostId !== assignedHost.id)
         throw new HttpError(
           400,
-          "Bookings are assigned to the Concrete meeting team automatically.",
+          "Bookings are assigned to the Monettic meeting team automatically.",
         );
       const startAt = new Date(input.startAt),
         endAt = new Date(input.endAt);
@@ -781,7 +781,7 @@ export async function callerAction(workspaceId: string, raw: unknown) {
       result = {
         id: created.id,
         message:
-          "Meeting booked. Your administrator has been notified in Concrete. You can download a calendar invitation to share with the prospect.",
+          "Meeting booked. Your administrator has been notified in Monettic. You can download a calendar invitation to share with the prospect.",
       };
     } else {
       const current = await tx.platformBooking.findFirst({

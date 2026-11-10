@@ -3,9 +3,9 @@ import "./globals.css";
 import "./caller.css";
 import { ThemeProvider } from "@/product/theme";
 export const metadata: Metadata = {
-  title: "Concrete — Business Intelligence & Outreach",
+  title: "Monettic — Business Intelligence & Outreach",
   description:
-    "Understand your business, discover relevant customers and build thoughtful email outreach with Concrete.",
+    "Understand your business, discover relevant customers and build thoughtful email outreach with Monettic.",
 };
 export default function RootLayout({
   children,

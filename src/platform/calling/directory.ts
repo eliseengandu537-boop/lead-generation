@@ -74,7 +74,7 @@ export async function fetchDirectory(
       redirect: "error",
       headers: {
         "Content-Type": "application/x-www-form-urlencoded",
-        "User-Agent": `ConcreteBusinessDirectory/1.0 (${new URL(process.env.NEXTAUTH_URL || "https://orbit-lead-generation.onrender.com").origin})`,
+        "User-Agent": `MonetticBusinessDirectory/1.0 (${new URL(process.env.NEXTAUTH_URL || "https://orbit-lead-generation.onrender.com").origin})`,
       },
       body: new URLSearchParams({ data: query }),
       signal: AbortSignal.timeout(25000),

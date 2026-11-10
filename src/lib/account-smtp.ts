@@ -63,11 +63,12 @@ export async function deliverSmtpAccountEmail(
 ) {
   const transport = createTransport(smtpTransportOptions(config));
   try {
+    // Keep existing Message-IDs stable when the product display name changes.
     const digest = createHash("sha256")
       .update(`concrete-identity/${message.id}`)
       .digest("hex");
     const result = await transport.sendMail({
-      from: { name: "Concrete", address: config.sender },
+      from: { name: "Monettic", address: config.sender },
       to: message.to,
       subject: message.subject,
       text: message.body,

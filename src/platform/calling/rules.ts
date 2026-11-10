@@ -167,10 +167,11 @@ export function bookingCalendar(
   const lines = [
     "BEGIN:VCALENDAR",
     "VERSION:2.0",
-    "PRODID:-//Concrete//Appointments//EN",
+    "PRODID:-//Monettic//Appointments//EN",
     "CALSCALE:GREGORIAN",
     "METHOD:PUBLISH",
     "BEGIN:VEVENT",
+    // Existing calendar updates must retain the original event identity.
     `UID:${escape(input.id)}@concrete`,
     `DTSTAMP:${stamp(input.updatedAt)}`,
     `DTSTART:${stamp(input.startAt)}`,
@@ -178,7 +179,7 @@ export function bookingCalendar(
     `SEQUENCE:${input.version}`,
     `SUMMARY:${escape(input.title)}`,
     `LOCATION:${escape(input.location)}`,
-    "DESCRIPTION:Meeting arranged through Concrete.",
+    "DESCRIPTION:Meeting arranged through Monettic.",
     `ORGANIZER;CN=${parameter(host.name)}:mailto:${host.email}`,
     ...(attendee.email
       ? [`ATTENDEE;CN=${parameter(attendee.name)}:mailto:${attendee.email}`]

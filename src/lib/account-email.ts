@@ -77,6 +77,7 @@ export function accountEmailRetryWindowMs(
 }
 
 function brevoIdempotencyKey(id: string) {
+  // Keep this namespace stable across rebrands to prevent duplicate sends.
   const bytes = createHash("sha256").update(`concrete-identity/${id}`).digest();
   bytes[6] = (bytes[6] & 0x0f) | 0x40;
   bytes[8] = (bytes[8] & 0x3f) | 0x80;
@@ -110,14 +111,14 @@ export async function deliverAccountEmail(
       body: JSON.stringify(
         brevo
           ? {
-              sender: { name: "Concrete", email: config.sender },
+              sender: { name: "Monettic", email: config.sender },
               to: [{ email: message.to }],
               subject: message.subject,
               textContent: message.body,
               headers: { idempotencyKey: brevoIdempotencyKey(message.id) },
             }
           : {
-              from: `Concrete <${config.sender}>`,
+              from: `Monettic <${config.sender}>`,
               to: [message.to],
               subject: message.subject,
               text: message.body,
