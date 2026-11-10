@@ -96,7 +96,7 @@ async function ai(workspaceId: string, operationKey: string) {
   if (!organization.encryptedAiKey)
     throw new HttpError(
       503,
-      "Connect this organization's OpenAI API key in Website settings",
+      "Connect this organization's Claude or OpenAI API key in Website settings",
     );
   await reserveUsage(workspaceId, operationKey, "AI");
   return {

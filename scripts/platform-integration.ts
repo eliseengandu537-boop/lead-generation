@@ -4,7 +4,8 @@ import { PrismaClient, type PlatformLead } from "@prisma/client";
 import { hash as passwordHash, compare } from "bcryptjs";
 import { controlDb, db, assertTenantDatabase } from "../src/lib/db";
 import { withTenantDatabase } from "../src/lib/tenancy";
-import { encrypt, hash, sign } from "../src/lib/security";
+import { encrypt, decrypt, hash, sign } from "../src/lib/security";
+import { draftEmail } from "../src/platform/research/service";
 import { createOrganizationInTransaction } from "../src/platform/core";
 import {
   sendCampaignMessage,
@@ -1020,6 +1021,61 @@ async function main() {
   pass(
     "operator HTTP resources work; CSRF and retired CRM routes remain blocked",
   );
+  const fixtureAiKey = "sk-ant-isolated-integration-credential";
+  const connectionUrl = `${base}/api/platform/${a}/business`;
+  const connection = await fetch(connectionUrl, {
+    method: "POST", headers,
+    body: JSON.stringify({ action: "connections", aiApiKey: fixtureAiKey, aiModel: "claude-sonnet-5-5" }),
+  });
+  assert.equal(connection.status, 200, await connection.text());
+  const businessConnection = await (await fetch(connectionUrl, { headers })).json();
+  assert.equal(businessConnection.connections.aiProvider, "Claude");
+  assert.equal(businessConnection.connections.aiConfigured, true);
+  assert.ok(!JSON.stringify(businessConnection).includes(fixtureAiKey));
+  const aiOrganization = await controlDb.platformOrganization.findUniqueOrThrow({ where: { workspaceId: a } });
+  assert.equal(decrypt(aiOrganization.encryptedAiKey!), fixtureAiKey);
+  const mismatch = await fetch(connectionUrl, {
+    method: "POST", headers,
+    body: JSON.stringify({ action: "connections", aiModel: "gpt-4.1-mini" }),
+  });
+  assert.equal(mismatch.status, 400);
+  assert.equal((await controlDb.platformOrganization.findUniqueOrThrow({ where: { workspaceId: a } })).aiModel, "claude-sonnet-5-5");
+  const fixtureEvidence = [{
+    url: "https://acme.com", title: "Workshop", fetchedAt: new Date().toISOString(),
+    excerpt: "We supply replacement parts to repair workshops.",
+  }];
+  await controlDb.platformOrganization.update({
+    where: { workspaceId: a },
+    data: { profileApprovedAt: new Date(), profile: {
+      companyName: "Fixture agency", industry: "Web design", niche: "Business websites",
+      products: [], services: ["Website design"], targetCustomers: ["Businesses"],
+      location: "South Africa", serviceAreas: [], uniqueSellingPoints: [], facts: [], cautions: [],
+    } },
+  });
+  await controlDb.platformLead.update({ where: { id: leads[0].id }, data: { evidence: fixtureEvidence } });
+  const originalFetch = globalThis.fetch;
+  let researchRequests = 0;
+  try {
+    globalThis.fetch = async (url, init) => {
+      assert.equal(url, "https://api.anthropic.com/v1/messages");
+      assert.equal(new Headers(init?.headers).get("Authorization"), `Bearer ${fixtureAiKey}`);
+      researchRequests++;
+      return Response.json({ stop_reason: "end_turn", content: [{ type: "text", text: JSON.stringify({
+        summary: "Parts supplier", fitReason: "Potential fit subject to review",
+        facts: [{ claim: "Supplies replacement parts", sourceUrl: fixtureEvidence[0].url, quote: "supply replacement parts to repair workshops" }],
+        cautions: ["Review before sending"], subject: "A website for your workshop customers",
+        body: "Hello team, could website design help your business? Let us know if you prefer no further contact.",
+      }) }] });
+    };
+    await withTenantDatabase(a, () => draftEmail(a, leads[0].id, `claude-draft:${suffix}`));
+  } finally { globalThis.fetch = originalFetch; }
+  assert.equal(researchRequests, 1);
+  const savedDraft = await controlDb.platformLead.findUniqueOrThrow({ where: { id: leads[0].id } });
+  assert.equal(savedDraft.draftSubject, "A website for your workshop customers");
+  assert.match(savedDraft.draftBody, /prefer no further contact/);
+  assert.equal(await controlDb.platformUsage.count({ where: { workspaceId: a, operationKey: `claude-draft:${suffix}`, kind: "AI" } }), 1);
+  assert.equal((await controlDb.platformOrganization.findUniqueOrThrow({ where: { workspaceId: b } })).encryptedAiKey, null);
+  pass("Claude connections stay encrypted and isolated; provider mismatches fail and website evidence produces a saved outreach draft");
   console.log(
     `${checks} integration groups passed. All email and automation network calls were mocked; no real outreach was sent.`,
   );

@@ -2,11 +2,12 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { HttpError, sameOrigin, rateLimit } from "@/lib/auth";
 import { handle, json } from "@/lib/http";
-import { encrypt } from "@/lib/security";
+import { encrypt, decrypt } from "@/lib/security";
 import { organizationAccess } from "@/platform/core";
 import { enqueueJob, orchestrationConfig } from "@/platform/jobs";
 import { normalizeWebsite } from "@/platform/research/web";
 import { businessProfileSchema } from "@/platform/research/analysis";
+import { researchProvider } from "@/platform/research/ai";
 type Context = { params: Promise<{ workspaceId: string }> };
 export async function GET(_request: Request, { params }: Context) {
   return handle(async () => {
@@ -23,6 +24,7 @@ export async function GET(_request: Request, { params }: Context) {
         searchConfigured: !!organization.encryptedSearchKey,
         aiConfigured: !!organization.encryptedAiKey,
         aiModel: organization.aiModel,
+        aiProvider: researchProvider(organization.aiModel),
       },
       automationConfigured: !!orchestrationConfig(),
       canManage: manage,
@@ -78,6 +80,14 @@ export async function POST(request: Request, { params }: Context) {
     if (input.action === "analyze")
       return enqueueJob(workspaceId, user.id, "ANALYZE_WEBSITE", {});
     if (input.action === "connection" || input.action === "connections") {
+      const aiModel = input.aiModel || organization.aiModel;
+      const aiKey = input.aiApiKey || (
+        input.aiModel && organization.encryptedAiKey
+          ? decrypt(organization.encryptedAiKey) : ""
+      );
+      if ((aiKey.startsWith("sk-ant-") && researchProvider(aiModel) !== "Claude") ||
+          (aiKey.startsWith("sk-proj-") && researchProvider(aiModel) === "Claude"))
+        throw new HttpError(400, "Choose a Claude model for an Anthropic key, or an OpenAI model for an OpenAI key.");
       await db.platformOrganization.update({
         where: { workspaceId },
         data: {

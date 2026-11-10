@@ -281,7 +281,7 @@ export function BusinessView({ data, act, canManage, openDialog }: ViewProps) {
         <div className="card-heading">
           <div>
             <p className="eyebrow">RESEARCH CONNECTIONS</p>
-            <h3>Power your research with your own providers.</h3>
+            <h3>Power your research and outreach with your own providers.</h3>
           </div>
           <span className="mini-icon">
             <KeyRound size={18} />
@@ -298,8 +298,8 @@ export function BusinessView({ data, act, canManage, openDialog }: ViewProps) {
             />
           </div>
           <div>
-            <b>Business intelligence</b>
-            <p>{text(connections.aiModel, "OpenAI")}</p>
+            <b>Research & email writing</b>
+            <p>{text(connections.aiProvider, "OpenAI")} · {text(connections.aiModel)}</p>
             <Badge
               value={connections.aiConfigured ? "CONNECTED" : "NOT_CONNECTED"}
             />
@@ -320,12 +320,12 @@ export function BusinessView({ data, act, canManage, openDialog }: ViewProps) {
                   },
                   {
                     name: "aiApiKey",
-                    label: "OpenAI API key",
+                    label: "Claude / Anthropic or OpenAI API key",
                     type: "password",
                   },
                   {
                     name: "aiModel",
-                    label: "AI model",
+                    label: "AI model (Claude: claude-sonnet-5-5)",
                     value: text(connections.aiModel, "gpt-4.1-mini"),
                   },
                 ],
