@@ -19,10 +19,7 @@ services:
       - key: DATABASE_URL
         sync: false
       - key: NEXTAUTH_URL
-        fromService:
-          name: orbit-lead-generation
-          type: web
-          envVarKey: RENDER_EXTERNAL_URL
+        value: https://crm.monettic.com
       - key: NEXTAUTH_SECRET
         generateValue: true
       - key: PLATFORM_ENCRYPTION_SEED
