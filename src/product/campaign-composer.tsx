@@ -48,11 +48,12 @@ export function CampaignComposer({
   const [mailboxId, setMailboxId] = useState(
     accounts.length === 1 ? text(accounts[0].id) : "",
   );
+  const [extraMailboxIds, setExtraMailboxIds] = useState<string[]>([]);
   const [subject, setSubject] = useState("");
   const [body, setBody] = useState("");
   const [leadIds, setLeadIds] = useState<string[]>([]);
   const [dailyLimit, setDailyLimit] = useState(25);
-  const [timing, setTiming] = useState("now");
+  const [timing, setTiming] = useState("business");
   const [steps, setSteps] = useState<Step[]>([]);
   const [preview, setPreview] = useState<RecordValue | null>(null);
   const [confirmed, setConfirmed] = useState(false);
@@ -98,6 +99,9 @@ export function CampaignComposer({
     subject,
     body,
     mailboxId: mailboxId || undefined,
+    extraMailboxIds: mailboxId
+      ? extraMailboxIds.filter((id) => id !== mailboxId)
+      : [],
     leadIds,
     dailyLimit,
     steps: permission ? [] : steps,
@@ -299,6 +303,38 @@ export function CampaignComposer({
                   ))}
                 </select>
               </label>
+              {mailboxId && accounts.length > 1 && (
+                <fieldset className="campaign-rotation">
+                  <legend>Also send from</legend>
+                  <p className="fine-print">
+                    Each recipient gets every email from one mailbox. Spreading a campaign across mailboxes keeps
+                    each one at a safe daily volume.
+                  </p>
+                  {accounts
+                    .filter((account) => text(account.id) !== mailboxId)
+                    .map((account) => {
+                      const id = text(account.id);
+                      return (
+                        <label className="campaign-recipient-choice" key={id}>
+                          <input
+                            type="checkbox"
+                            checked={extraMailboxIds.includes(id)}
+                            onChange={(event) =>
+                              setExtraMailboxIds((current) =>
+                                event.target.checked
+                                  ? [...current, id]
+                                  : current.filter((item) => item !== id),
+                              )
+                            }
+                          />
+                          <span>
+                            {text(account.email)} · {text(account.status).replaceAll("_", " ")}
+                          </span>
+                        </label>
+                      );
+                    })}
+                </fieldset>
+              )}
               <label>
                 Target niche
                 <input
@@ -419,10 +455,8 @@ export function CampaignComposer({
                   value={timing}
                   onChange={(event) => setTiming(event.target.value)}
                 >
-                  <option value="now">
-                    As soon as the sending worker processes it
-                  </option>
-                  <option value="business">Weekdays, 09:00–17:00</option>
+                  <option value="business">Weekdays, 09:00–17:00 (recommended)</option>
+                  <option value="now">Any time, every day</option>
                 </select>
               </label>
             </div>
@@ -502,8 +536,17 @@ export function CampaignComposer({
             <div className="campaign-review-summary">
               <b>{name}</b>
               <p>
-                From: {text(preview.sender, "No sending account connected")}
+                From:{" "}
+                {Array.isArray(preview.senders) && preview.senders.length
+                  ? preview.senders.map(String).join(", ")
+                  : text(preview.sender, "No sending account connected")}
                 <br />
+                {typeof preview.dailyCapacity === "number" && preview.dailyCapacity > 0 && (
+                  <>
+                    Mailbox capacity today: {text(preview.dailyCapacity)} emails
+                    <br />
+                  </>
+                )}
                 Recipients: {rows(preview.recipients).length} · Daily limit:{" "}
                 {text(preview.dailyLimit)}
                 <br />
@@ -543,6 +586,16 @@ export function CampaignComposer({
                       review again
                     </button>
                   )}
+              </div>
+            )}
+            {Array.isArray(preview.warnings) && preview.warnings.length > 0 && (
+              <div className="campaign-setup-notice campaign-warnings">
+                <b>Worth fixing for better delivery</b>
+                <ul>
+                  {preview.warnings.map((warning, index) => (
+                    <li key={index}>{String(warning)}</li>
+                  ))}
+                </ul>
               </div>
             )}
             {rows(preview.recipients).map((recipient, index) => (

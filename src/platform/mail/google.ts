@@ -3,7 +3,8 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { decrypt, encrypt, hash, secret } from "@/lib/security";
 import { HttpError } from "@/lib/auth";
-import { senderMatchesWebsite } from "./domain";
+import { senderAllowed } from "./domain";
+import { refreshDomainHealth } from "./authentication";
 
 export const gmailScopes = [
   "https://www.googleapis.com/auth/gmail.send",
@@ -143,12 +144,12 @@ export async function finishGoogleConnection(
   const organization = await db.platformOrganization.findUniqueOrThrow({
     where: { workspaceId },
   });
-  if (!senderMatchesWebsite(profile.emailAddress, [organization.websiteUrl]))
+  if (!senderAllowed(profile.emailAddress, organization))
     throw new HttpError(
       400,
-      "Connect the business email for this client's website domain",
+      "Connect a business email on this client's website domain or one of their sending domains",
     );
-  return db.platformMailbox.upsert({
+  const mailbox = await db.platformMailbox.upsert({
     where: {
       workspaceId_email: {
         workspaceId,
@@ -159,6 +160,7 @@ export async function finishGoogleConnection(
       workspaceId,
       email: profile.emailAddress.toLowerCase(),
       provider: "GMAIL",
+      warmupStartedAt: new Date(),
       encryptedCredentials: encrypt(
         JSON.stringify({
           accessToken: token.access_token,
@@ -181,6 +183,8 @@ export async function finishGoogleConnection(
       lastSyncedAt: null,
     },
   });
+  await refreshDomainHealth(workspaceId, 0, [mailbox.id]);
+  return mailbox;
 }
 export async function gmailToken(
   workspaceId: string,

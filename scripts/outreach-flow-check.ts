@@ -1,4 +1,4 @@
-// End-to-end check of the POPIA permission request and Microsoft 365 sending against the LOCAL
+// End-to-end check of the POPIA permission request, Microsoft 365 sending and mailbox rotation against the LOCAL
 // database. Microsoft Graph is simulated; no request leaves this process and no email is sent.
 // It creates one temporary workspace and removes everything it created, even on failure.
 import fs from "node:fs";
@@ -100,6 +100,8 @@ async function main() {
       },
     });
     created = true;
+    // The fixture domain has no DNS; record the SPF/DKIM/DMARC result a set-up domain would give.
+    const health = { domain: domain, checkedAt: new Date().toISOString(), spf: { status: "PASS", detail: "SPF ok" }, dkim: { status: "PASS", detail: "DKIM ok" }, dmarc: { status: "PASS", detail: "DMARC ok" } };
     const mailbox = await db.platformMailbox.create({
       data: {
         workspaceId,
@@ -110,6 +112,8 @@ async function main() {
         dailyLimit: 50,
         minimumIntervalSeconds: 5,
         lastSyncedAt: new Date(),
+        domainHealth: health,
+        domainCheckedAt: new Date(),
         encryptedCredentials: encrypt(JSON.stringify({ accessToken: "check-token", refreshToken: "unused", expiresAt: Date.now() + 3600000 })),
       },
     });
@@ -120,11 +124,13 @@ async function main() {
     const gone = await db.platformLead.create({
       data: { workspaceId, company: "Gone Workshop", email: `owner@gone-${suffix.slice(0, 8)}.example.invalid`, ...verified },
     });
-    const campaign = async (purpose: string, leadIds: string[]) => {
+    const campaign = async (purpose: string, leadIds: string[], extraMailboxIds: string[] = [], steps: object[] = []) => {
       const record = await db.platformCampaign.create({
         data: {
           workspaceId,
           mailboxId: mailbox.id,
+          extraMailboxIds,
+          steps,
           name: `${purpose} check`,
           purpose,
           subject: "Quick question",
@@ -157,11 +163,23 @@ async function main() {
     };
     const ready = () =>
       db.platformMailbox.update({ where: { id: mailbox.id }, data: { lastSentAt: null, lastSyncedAt: new Date() } });
-    const send = (campaignId: string, leadId: string) =>
-      withTenantDatabase(workspaceId, () => sendCampaignMessage(workspaceId, campaignId, leadId, 0, `check-${campaignId}-${leadId}`, graph));
+    const send = (campaignId: string, leadId: string, followup = 0) =>
+      withTenantDatabase(workspaceId, () =>
+        sendCampaignMessage(workspaceId, campaignId, leadId, followup, `check-${campaignId}-${leadId}-${followup}`, graph),
+      );
+
+    // 0. A sending domain without DMARC holds the mailbox before anything reaches Microsoft.
+    const ask = await campaign("PERMISSION_REQUEST", [yes.id, gone.id]);
+    await db.platformMailbox.update({
+      where: { id: mailbox.id },
+      data: { domainHealth: { ...health, dmarc: { status: "FAIL", detail: "no DMARC record" } } },
+    });
+    await assert.rejects(send(ask.id, yes.id), /Sending domain for gary@.* needs attention: no DMARC record/);
+    await db.platformMailbox.update({ where: { id: mailbox.id }, data: { domainHealth: health } });
+    assert.equal(drafts.length, 0);
+    step("sending domain without DMARC blocked before reaching Microsoft");
 
     // 1. The permission request goes out once per lead through Microsoft 365.
-    const ask = await campaign("PERMISSION_REQUEST", [yes.id, gone.id]);
     assert.equal((await send(ask.id, yes.id)).status, "ACCEPTED");
     await ready();
     assert.equal((await send(ask.id, gone.id)).status, "ACCEPTED");
@@ -240,6 +258,57 @@ async function main() {
     assert.equal((await send(outreach.id, yes.id)).status, "ACCEPTED");
     assert.equal(drafts.length, 3);
     step("consented lead receives outreach; the consenting reply does not block it");
+
+    // 5. A campaign rotates across mailboxes, and a follow-up stays with the mailbox that wrote first.
+    const second = await db.platformMailbox.create({
+      data: {
+        workspaceId,
+        email: `sales@${domain}`,
+        provider: "MICROSOFT",
+        status: "LIVE_ENABLED",
+        createdBy: admin.id,
+        dailyLimit: 50,
+        minimumIntervalSeconds: 5,
+        lastSyncedAt: new Date(),
+        warmupStartedAt: new Date(),
+        domainHealth: health,
+        domainCheckedAt: new Date(),
+        encryptedCredentials: encrypt(JSON.stringify({ accessToken: "check-token", refreshToken: "unused", expiresAt: Date.now() + 3600000 })),
+      },
+    });
+    const two = await db.platformLead.create({
+      data: {
+        workspaceId,
+        company: "Two Workshop",
+        email: `owner@two-${suffix.slice(0, 8)}.example.invalid`,
+        ...verified,
+        eligibility: "CONSENTED",
+        consentSource: "Replied yes to the permission request",
+        consentAt: new Date(Date.now() - 60000),
+      },
+    });
+    const rotating = await campaign("OUTREACH", [yes.id, two.id], [second.id], [
+      { delayDays: 3, subject: "Following up", body: "Hello again,\n\nDo you need starter motors this month?" },
+    ]);
+    // gary@ sent a moment ago and is inside its 5-second interval, so the idle mailbox goes first.
+    assert.equal((await send(rotating.id, yes.id)).status, "ACCEPTED");
+    await ready();
+    assert.equal((await send(rotating.id, two.id)).status, "ACCEPTED");
+    const rotated = await db.platformMailMessage.findMany({
+      where: { workspaceId, campaignId: rotating.id },
+      orderBy: { createdAt: "asc" },
+    });
+    assert.deepEqual(rotated.map((message) => message.fromEmail), [second.email, mailbox.email]);
+    const pinned = await db.platformCampaignRecipient.findFirstOrThrow({ where: { campaignId: rotating.id, leadId: yes.id } });
+    assert.equal(pinned.mailboxId, second.id);
+    await db.platformCampaignRecipient.update({ where: { id: pinned.id }, data: { step: 1 } });
+    await ready();
+    await db.platformMailbox.update({ where: { id: second.id }, data: { lastSentAt: null, lastSyncedAt: new Date() } });
+    assert.equal((await send(rotating.id, yes.id, 1)).status, "ACCEPTED");
+    const followup = await db.platformMailMessage.findFirstOrThrow({ where: { workspaceId, campaignId: rotating.id, step: 1 } });
+    assert.equal(followup.fromEmail, second.email);
+    assert.equal(drafts.length, 6);
+    step("campaign rotates across two mailboxes; the follow-up comes from the first sender");
     console.log(JSON.stringify({ completed: true, simulatedGraphDrafts: drafts.length, realEmailsSent: 0 }));
   } finally {
     if (created) {

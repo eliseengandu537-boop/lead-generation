@@ -3,7 +3,15 @@ import type { PlatformMailMessage } from "@prisma/client";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { hash, sign } from "@/lib/security";
-import { senderMatchesWebsite } from "./domain";
+import { senderAllowed } from "./domain";
+import { domainBlockers } from "./authentication";
+import {
+  campaignMailboxIds,
+  countedStatuses,
+  dailyAllowance,
+  sendingMailboxFor,
+  startOfUtcDay,
+} from "./rotation";
 import { googleRawMessage, mimeMessage } from "./google";
 import {
   createGraphDraft,
@@ -29,6 +37,8 @@ export class MailDeferredError extends Error {
     super(message);
   }
 }
+/** A deferral that only concerns one mailbox; a campaign batch moves on to other recipients. */
+export class MailboxBusyError extends MailDeferredError {}
 const future = (milliseconds = 60000) => new Date(Date.now() + milliseconds);
 export function unsubscribeLink(messageId: string, oneClick = false) {
   if (!process.env.NEXTAUTH_SECRET || !process.env.NEXTAUTH_URL)
@@ -59,10 +69,11 @@ export async function sendCampaignMessage(
   const campaign = await db.platformCampaign.findFirstOrThrow({
     where: { id: campaignId, workspaceId },
   });
-  if (!campaign.mailboxId)
-    throw new Error("Connect this campaign to an authorized business mailbox");
   const dedupeKey = `campaign:${campaignId}:lead:${leadId}:step:${step}`;
-  const access = await mailboxAccess(workspaceId, campaign.mailboxId, request);
+  const mailboxId = await sendingMailboxFor(workspaceId, campaign, leadId, dedupeKey);
+  if (!mailboxId)
+    throw new Error("Connect this campaign to an authorized business mailbox");
+  const access = await mailboxAccess(workspaceId, mailboxId, request);
   const reservation = await db.$transaction(
     async (tx) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${workspaceId}))`;
@@ -78,7 +89,7 @@ export async function sendCampaignMessage(
             where: { campaignId, leadId, workspaceId },
           }),
           tx.platformMailbox.findFirstOrThrow({
-            where: { id: campaign.mailboxId!, workspaceId },
+            where: { id: mailboxId, workspaceId },
           }),
           tx.platformOrganization.findUniqueOrThrow({ where: { workspaceId } }),
           tx.workspace.findUniqueOrThrow({ where: { id: workspaceId } }),
@@ -136,7 +147,7 @@ export async function sendCampaignMessage(
       }
       if (
         workspace.status !== "ACTIVE" ||
-        current.mailboxId !== mailbox.id ||
+        !campaignMailboxIds(current).includes(mailbox.id) ||
         mailbox.status !== "LIVE_ENABLED"
       )
         throw new Error(
@@ -156,10 +167,16 @@ export async function sendCampaignMessage(
         );
       if (
         !organization.profileApprovedAt ||
-        !senderMatchesWebsite(mailbox.email, [organization.websiteUrl])
+        !senderAllowed(mailbox.email, organization)
       )
         throw new Error(
           "Approve the website business profile and connect its matching business email",
+        );
+      const domainProblem = domainBlockers(mailbox.domainHealth)[0];
+      if (domainProblem)
+        throw new MailboxBusyError(
+          `Sending domain for ${mailbox.email} needs attention: ${domainProblem}`,
+          future(30 * 60000),
         );
       const minimumScore = z
         .object({ minimumScore: z.number().min(0).max(100).optional() })
@@ -225,7 +242,7 @@ export async function sendCampaignMessage(
         !mailbox.lastSyncedAt ||
         mailbox.lastSyncedAt < new Date(Date.now() - 60000)
       )
-        throw new MailDeferredError(
+        throw new MailboxBusyError(
           "Mailbox feedback must be synchronized before sending",
           future(),
         );
@@ -249,15 +266,14 @@ export async function sendCampaignMessage(
         mailbox.lastSentAt.getTime() + mailbox.minimumIntervalSeconds * 1000 >
           Date.now()
       )
-        throw new MailDeferredError(
+        throw new MailboxBusyError(
           "Sender rate limit reached",
           new Date(
             mailbox.lastSentAt.getTime() +
               mailbox.minimumIntervalSeconds * 1000,
           ),
         );
-      const since = new Date();
-      since.setUTCHours(0, 0, 0, 0);
+      const since = startOfUtcDay();
       const [mailboxCount, campaignCount, tenantCount, subscription] =
         await Promise.all([
           tx.platformMailMessage.count({
@@ -265,7 +281,7 @@ export async function sendCampaignMessage(
               workspaceId,
               mailboxId: mailbox.id,
               direction: "OUTBOUND",
-              status: { in: ["SENDING", "ACCEPTED", "REVIEW_REQUIRED"] },
+              status: { in: countedStatuses },
               createdAt: { gte: since },
             },
           }),
@@ -274,7 +290,7 @@ export async function sendCampaignMessage(
               workspaceId,
               campaignId,
               direction: "OUTBOUND",
-              status: { in: ["SENDING", "ACCEPTED", "REVIEW_REQUIRED"] },
+              status: { in: countedStatuses },
               createdAt: { gte: since },
             },
           }),
@@ -282,7 +298,7 @@ export async function sendCampaignMessage(
             where: {
               workspaceId,
               direction: "OUTBOUND",
-              status: { in: ["SENDING", "ACCEPTED", "REVIEW_REQUIRED"] },
+              status: { in: countedStatuses },
               createdAt: { gte: since },
             },
           }),
@@ -300,12 +316,19 @@ export async function sendCampaignMessage(
           "An active subscription allowance is required for outreach",
         );
       if (
-        mailboxCount >= mailbox.dailyLimit ||
         campaignCount >= current.dailyLimit ||
         tenantCount >= subscription.plan.dailyEmails
       )
         throw new MailDeferredError(
           "Daily sending allowance reached",
+          new Date(since.getTime() + 86400000),
+        );
+      const allowance = dailyAllowance(mailbox);
+      if (mailboxCount >= allowance)
+        throw new MailboxBusyError(
+          allowance < mailbox.dailyLimit
+            ? `Mailbox warm-up allowance reached (${allowance} today)`
+            : "Mailbox daily sending allowance reached",
           new Date(since.getTime() + 86400000),
         );
       const id = randomUUID(),
@@ -336,6 +359,12 @@ export async function sendCampaignMessage(
         where: { id: mailbox.id },
         data: { lastSentAt: new Date() },
       });
+      // Follow-ups to this recipient come from the same mailbox.
+      if (recipient.mailboxId !== mailbox.id)
+        await tx.platformCampaignRecipient.update({
+          where: { id: recipient.id },
+          data: { mailboxId: mailbox.id },
+        });
       return { message, duplicate: false };
     },
     { timeout: 15000 },
@@ -655,7 +684,7 @@ export async function sendApprovedReply(
       mailbox.status !== "LIVE_ENABLED" ||
       workspace.status !== "ACTIVE" ||
       suppression ||
-      !senderMatchesWebsite(mailbox.email, [organization.websiteUrl])
+      !senderAllowed(mailbox.email, organization)
     )
       throw new Error("Reply sender or recipient is not eligible");
     if (

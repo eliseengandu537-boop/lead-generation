@@ -3,6 +3,7 @@ import { z } from "zod";
 import { controlDb, db } from "@/lib/db";
 import { withTenantDatabase } from "@/lib/tenancy";
 import { HttpError } from "@/lib/auth";
+import { hash } from "@/lib/security";
 import { enqueueJob, dispatchOneJob, orchestrationConfig } from "./jobs";
 import {
   analyzeWebsite,
@@ -20,7 +21,15 @@ import {
   sendApprovedReply,
   reconcileMessage,
   MailDeferredError,
+  MailboxBusyError,
 } from "./mail";
+import { refreshDomainHealth } from "./mail/authentication";
+import {
+  campaignMailboxIds,
+  dailyAllowance,
+  sentTodayByMailbox,
+  startOfUtcDay,
+} from "./mail/rotation";
 import { reportData } from "./analytics";
 import { hasMarketingPermission, replyBlocksOutreach } from "./mail/permission";
 
@@ -30,27 +39,56 @@ async function campaignBatch(job: PlatformJob, campaignId: string) {
   });
   if (!campaign || campaign.status !== "RUNNING")
     return { summary: "Campaign is not running; no messages were sent." };
-  if (!campaign.mailboxId)
+  const rotation = campaignMailboxIds(campaign);
+  if (!rotation.length)
     throw new HttpError(409, "Campaign needs an authorized business mailbox");
   if (campaign.scheduledAt && campaign.scheduledAt > new Date())
     throw new MailDeferredError(
       "Campaign start is scheduled for later",
       campaign.scheduledAt,
     );
-  await syncMailbox(job.workspaceId, campaign.mailboxId);
+  await refreshDomainHealth(job.workspaceId, 12 * 3600_000, rotation);
+  // Recipients waiting on a mailbox that has used today's allowance are left for tomorrow, so
+  // they do not hold up recipients that another mailbox can still write to.
+  let full: string[] = [];
+  if (rotation.length === 1) await syncMailbox(job.workspaceId, rotation[0]);
+  else {
+    const mailboxes = await db.platformMailbox.findMany({
+      where: { workspaceId: job.workspaceId, id: { in: rotation }, status: "LIVE_ENABLED" },
+    });
+    const failures: unknown[] = [];
+    for (const mailbox of mailboxes)
+      if (!mailbox.lastSyncedAt || mailbox.lastSyncedAt < new Date(Date.now() - 45000))
+        await syncMailbox(job.workspaceId, mailbox.id).catch((error) => failures.push(error));
+    if (mailboxes.length && failures.length === mailboxes.length) throw failures[0];
+    const sentToday = await sentTodayByMailbox(job.workspaceId, rotation);
+    full = mailboxes
+      .filter((mailbox) => (sentToday.get(mailbox.id) ?? 0) >= dailyAllowance(mailbox))
+      .map((mailbox) => mailbox.id);
+    if (mailboxes.length && full.length === mailboxes.length)
+      throw new MailboxBusyError(
+        "Daily sending allowance reached on every campaign mailbox",
+        new Date(startOfUtcDay().getTime() + 86400000),
+      );
+  }
   const recipients = await db.platformCampaignRecipient.findMany({
     where: {
       workspaceId: job.workspaceId,
       campaignId,
       status: "QUEUED",
       nextAt: { lte: new Date() },
+      ...(full.length
+        ? { OR: [{ mailboxId: null }, { mailboxId: { notIn: full } }] }
+        : {}),
     },
     include: { lead: true },
     orderBy: { nextAt: "asc" },
     take: 10,
   });
   let sent = 0,
-    stopped = 0;
+    stopped = 0,
+    busyCount = 0,
+    busy: MailboxBusyError | null = null;
   for (const recipient of recipients) {
     const lead = recipient.lead;
     if (
@@ -70,13 +108,30 @@ async function campaignBatch(job: PlatformJob, campaignId: string) {
       stopped++;
       continue;
     }
-    await sendCampaignMessage(
-      job.workspaceId,
-      campaignId,
-      recipient.leadId,
-      recipient.step,
-      job.id,
-    );
+    try {
+      await sendCampaignMessage(
+        job.workspaceId,
+        campaignId,
+        recipient.leadId,
+        recipient.step,
+        job.id,
+      );
+    } catch (error) {
+      if (!(error instanceof MailboxBusyError)) throw error;
+      if (!busy || error.retryAt < busy.retryAt) busy = error;
+      if (error.message.startsWith("Sending domain"))
+        await notice(
+          job.workspaceId,
+          `domain:${hash(error.message)}:${new Date().toISOString().slice(0, 10)}`,
+          "SENDING_DOMAIN",
+          "A sending domain needs attention",
+          error.message,
+          "WARNING",
+        );
+      // One mailbox cannot send now; others may. Stop once every mailbox has had a turn.
+      if (++busyCount >= rotation.length) break;
+      continue;
+    }
     await db.$transaction(async (tx) => {
       const steps = z
         .array(
@@ -116,6 +171,8 @@ async function campaignBatch(job: PlatformJob, campaignId: string) {
     });
     sent++;
   }
+  // Retry when the earliest busy mailbox frees up; other mailboxes have already had their turn.
+  if (busy) throw busy;
   const remaining = await db.platformCampaignRecipient.count({
     where: { workspaceId: job.workspaceId, campaignId, status: "QUEUED" },
   });

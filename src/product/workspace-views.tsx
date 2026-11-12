@@ -5,7 +5,9 @@ import {
   ArrowUpRight,
   Check,
   CheckCircle2,
+  CircleAlert,
   CreditCard,
+  Flame,
   Globe2,
   KeyRound,
   Link2,
@@ -18,6 +20,7 @@ import {
   Sparkles,
   Trash2,
   Users,
+  XCircle,
 } from "lucide-react";
 import { date, label, object, rows, text, type RecordValue } from "./data";
 import { Badge, Empty, KeyValues, SectionHeading } from "./primitives";
@@ -350,10 +353,145 @@ export function BusinessView({ data, act, canManage, openDialog }: ViewProps) {
   );
 }
 
-export function MailboxesView({ data, act, canManage, openDialog }: ViewProps) {
+const domainCheckNames = [
+  ["spf", "SPF"],
+  ["dkim", "DKIM"],
+  ["dmarc", "DMARC"],
+] as const;
+function DomainChecks({ health }: { health: unknown }) {
+  const checks = object(health);
+  if (!checks.domain)
+    return <p className="domain-pending">Domain setup has not been checked yet.</p>;
+  return (
+    <ul className="domain-checks" aria-label={`Email authentication for ${text(checks.domain)}`}>
+      {domainCheckNames.map(([key, name]) => {
+        const check = object(checks[key]);
+        const status = text(check.status, "ERROR");
+        return (
+          <li key={key} className={`domain-check domain-${status.toLowerCase()}`}>
+            {status === "PASS" ? (
+              <CheckCircle2 size={15} />
+            ) : status === "FAIL" ? (
+              <XCircle size={15} />
+            ) : (
+              <CircleAlert size={15} />
+            )}
+            <span>
+              <b>{name}</b>
+              {text(check.detail)}
+            </span>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+function WarmupLine({ mailbox }: { mailbox: RecordValue }) {
+  const warmup = object(mailbox.warmup);
+  const sent = text(mailbox.sentToday, "0");
+  if (!mailbox.warmupStartedAt || warmup.complete)
+    return (
+      <span>
+        Sent today<b>{sent} of {text(mailbox.dailyLimit)}</b>
+      </span>
+    );
+  return (
+    <span>
+      Warming up<b>{sent} of {text(warmup.allowance)} today · full volume in {text(warmup.daysLeft)} days</b>
+    </span>
+  );
+}
+function SendingDomains({ data, act, canManage, openDialog }: ViewProps) {
+  const extra = Array.isArray(data.sendingDomains) ? data.sendingDomains.map(String) : [];
+  return (
+    <section className="surface sending-domains">
+      <div>
+        <p className="eyebrow">SENDING DOMAINS</p>
+        <h3>Protect the main domain</h3>
+        <p>
+          Send cold outreach from 2–3 extra domains (for example get{text(data.websiteDomain, "business.co.za")})
+          with 2–3 mailboxes each, so the client’s main domain never takes the risk. Point each extra domain’s website to the
+          main site, publish SPF, DKIM and DMARC, and let new mailboxes warm up before full volume.
+        </p>
+      </div>
+      <ul className="domain-list">
+        {data.websiteDomain ? (
+          <li>
+            <Globe2 size={15} />
+            {text(data.websiteDomain)}
+            <span>Website</span>
+          </li>
+        ) : null}
+        {extra.map((domain) => (
+          <li key={domain}>
+            <Mail size={15} />
+            {domain}
+            {canManage && (
+              <button
+                className="icon-button"
+                aria-label={`Remove ${domain}`}
+                onClick={() =>
+                  openDialog({
+                    title: `Remove ${domain}`,
+                    detail: "Mailboxes on this domain can no longer be connected or send for this client.",
+                    fields: [],
+                    submitLabel: "Remove domain",
+                    submit: () => act("mailboxes", { action: "remove-domain", domain }),
+                  })
+                }
+              >
+                <Trash2 size={14} />
+              </button>
+            )}
+          </li>
+        ))}
+      </ul>
+      {canManage && (
+        <button
+          onClick={() =>
+            openDialog({
+              title: "Add a sending domain",
+              detail:
+                "Add a domain this client owns for outreach. Mailboxes on it can then be connected for this client.",
+              fields: [
+                { name: "domain", label: "Domain", type: "text", required: true },
+                {
+                  name: "confirmed",
+                  label: "The client owns this domain and asked us to send from it.",
+                  type: "checkbox",
+                  required: true,
+                },
+              ],
+              submitLabel: "Add domain",
+              submit: (value) =>
+                act("mailboxes", { action: "add-domain", domain: text(value.domain) }),
+            })
+          }
+        >
+          <Plus size={16} />
+          Add sending domain
+        </button>
+      )}
+    </section>
+  );
+}
+
+export function MailboxesView(props: ViewProps) {
+  const { data, act, canManage, openDialog } = props;
   const items = rows(data.items);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  async function checkDomain(id: unknown) {
+    setBusy(true);
+    setError("");
+    try {
+      await act("mailboxes", { action: "check-domain", id: text(id) });
+    } catch (problem) {
+      setError((problem as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
   const providers = data.providers
     ? object(data.providers)
     : { google: data.configured, microsoft: false };
@@ -395,7 +533,7 @@ export function MailboxesView({ data, act, canManage, openDialog }: ViewProps) {
       <SectionHeading
         eyebrow="YOUR EMAIL. YOUR IDENTITY."
         title="Your sending identity"
-        detail="Connect the business email address your customers know. Each business authorizes its own account."
+        detail="Connect the business mailboxes outreach is sent from. Campaigns can rotate across several mailboxes so each one stays at a safe daily volume."
         action={canManage && connectButtons(true)}
       />
       {error && (
@@ -431,6 +569,7 @@ export function MailboxesView({ data, act, canManage, openDialog }: ViewProps) {
           Secure OAuth
         </span>
       </div>
+      <SendingDomains {...props} />
       {items.length ? (
         <div className="mailbox-grid">
           {items.map((mailbox) => (
@@ -451,13 +590,12 @@ export function MailboxesView({ data, act, canManage, openDialog }: ViewProps) {
                 · Your connected business account
               </p>
               <div className="mailbox-facts">
-                <span>
-                  Daily sending limit<b>{text(mailbox.dailyLimit)}</b>
-                </span>
+                <WarmupLine mailbox={mailbox} />
                 <span>
                   Last synchronized<b>{date(mailbox.lastSyncedAt, true)}</b>
                 </span>
               </div>
+              <DomainChecks health={mailbox.domainHealth} />
               {canManage && mailbox.status === "RECONNECT_REQUIRED" && (
                 <button
                   className="primary"
@@ -531,6 +669,47 @@ export function MailboxesView({ data, act, canManage, openDialog }: ViewProps) {
                   </button>
                 </div>
               )}
+              {canManage && (
+                <div className="inline-actions mailbox-setup-actions">
+                  <button disabled={busy} onClick={() => void checkDomain(mailbox.id)}>
+                    <ShieldCheck size={15} />
+                    Check domain
+                  </button>
+                  <button
+                    onClick={() =>
+                      openDialog(
+                        mailbox.warmupStartedAt
+                          ? {
+                              title: "Skip warm-up",
+                              detail:
+                                "Use this only for a mailbox that has already been warmed up, for example with a warm-up service for at least two weeks. It will send up to its full daily limit straight away.",
+                              fields: [
+                                {
+                                  name: "confirmed",
+                                  label: "This mailbox is already warmed up.",
+                                  type: "checkbox",
+                                  required: true,
+                                },
+                              ],
+                              submitLabel: "Skip warm-up",
+                              submit: () => act("mailboxes", { action: "skip-warmup", id: mailbox.id }),
+                            }
+                          : {
+                              title: "Restart warm-up",
+                              detail:
+                                "The mailbox goes back to 5 campaign emails a day and adds 2 a day until it reaches its daily limit.",
+                              fields: [],
+                              submitLabel: "Restart warm-up",
+                              submit: () => act("mailboxes", { action: "restart-warmup", id: mailbox.id }),
+                            },
+                      )
+                    }
+                  >
+                    <Flame size={15} />
+                    {mailbox.warmupStartedAt ? "Skip warm-up" : "Restart warm-up"}
+                  </button>
+                </div>
+              )}
             </article>
           ))}
         </div>
@@ -551,7 +730,7 @@ export function MailboxesView({ data, act, canManage, openDialog }: ViewProps) {
         </span>
         <span>
           <Globe2 size={18} />
-          Sender matches your business website
+          Only the client’s own domains can send
         </span>
         <span>
           <CheckCircle2 size={18} />

@@ -7608,3 +7608,114 @@ select {
     flex-wrap: wrap;
   }
 }
+
+/* Sending setup: domain authentication, warm-up and sending domains */
+.domain-checks {
+  list-style: none;
+  display: grid;
+  gap: 8px;
+  margin: 0 0 18px;
+  padding: 0;
+  font-size: 10px;
+}
+.domain-check {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  color: var(--muted);
+  line-height: 1.45;
+}
+.domain-check > svg {
+  flex: none;
+  margin-top: 1px;
+}
+.domain-check b {
+  color: var(--ink-strong);
+  font-weight: 600;
+  margin-right: 6px;
+}
+.domain-pass > svg {
+  color: var(--success);
+}
+.domain-warn > svg,
+.domain-error > svg {
+  color: var(--warning);
+}
+.domain-fail > svg {
+  color: var(--danger);
+}
+.domain-pending {
+  color: var(--muted);
+  font-size: 10px;
+  margin: 0 0 18px;
+}
+.mailbox-setup-actions {
+  margin-top: 10px;
+}
+.sending-domains {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) auto;
+  gap: 24px;
+  align-items: start;
+  padding: 23px;
+  margin-bottom: 20px;
+}
+.sending-domains h3 {
+  font-size: 15px;
+  font-weight: 600;
+  margin: 4px 0 6px;
+}
+.sending-domains p:not(.eyebrow) {
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.55;
+  margin: 0;
+}
+.domain-list {
+  list-style: none;
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  font-size: 11px;
+}
+.domain-list li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.domain-list li > span {
+  color: var(--muted);
+  font-size: 9px;
+  margin-left: auto;
+}
+.domain-list li > button {
+  margin-left: auto;
+}
+@media (max-width: 860px) {
+  .sending-domains {
+    grid-template-columns: 1fr;
+  }
+}
+.campaign-rotation {
+  grid-column: 1 / -1;
+  border: 1px solid var(--border, #344257);
+  border-radius: 10px;
+  padding: 12px 16px;
+  margin: 0;
+  min-width: 0;
+}
+.campaign-rotation legend {
+  padding: 0 6px;
+  font-size: 11px;
+  font-weight: 600;
+}
+.campaign-rotation .fine-print {
+  margin: 0 0 8px;
+}
+.campaign-warnings {
+  border-color: var(--warning-line);
+  background: var(--warning-bg);
+}

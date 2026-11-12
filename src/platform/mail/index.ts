@@ -3,6 +3,7 @@ export {
   sendApprovedReply,
   reconcileMessage,
   MailDeferredError,
+  MailboxBusyError,
 } from "./send";
 export { syncMailbox } from "./sync";
 export {

@@ -78,6 +78,18 @@ Email verification first runs a free DNS check: an address whose domain does not
 
 South Africa's POPIA section 69 requires consent before electronic direct marketing, including to businesses, and allows a business to approach someone once to ask for it. In **Create and send**, choose **One-time permission request**. That campaign sends a single email with no follow-ups and a fixed notice, and only to verified, qualified leads that have never been asked or contacted. A lead is asked at most once across all campaigns. A reply whose first paragraph clearly says yes records consent automatically, with the reply quoted as the evidence; any other reply is flagged for a person to read. Leads with recorded permission can then be added to ordinary outreach campaigns. Confirm the wording and your process with a legal adviser before using it for a client.
 
+## Professional sending setup
+
+Set up each client's sending before the first campaign:
+
+1. **Separate sending domains.** Buy 2–3 domains close to the client's name (for example getacme.co.za), point their websites at the client's main site, and add them under **Email Connections › Sending domains**. Only the website domain and domains added there can connect a mailbox for that client; free email services cannot be added.
+2. **Two or three mailboxes per domain** in Google Workspace or Microsoft 365, each connected in Monettic.
+3. **SPF, DKIM and DMARC** on every domain. Monettic checks them when a mailbox connects, every few hours, and before a campaign is reviewed or started. A missing SPF or DMARC record blocks sending from that mailbox, and the card says which record to add. A missing DKIM key is a warning, because a custom DKIM selector cannot be detected.
+4. **Warm-up.** A newly connected mailbox starts at 5 campaign emails a day and adds 2 a day until it reaches its daily limit (25 by default). If a mailbox was already warmed with a warm-up service, choose **Skip warm-up** on its card.
+5. **Rotation.** In **Create and send**, choose the main mailbox and tick **Also send from** for the others. Each recipient receives every email from one mailbox. A campaign keeps sending from the healthy mailboxes when one is paused, full for the day, or has a domain problem.
+
+Keep each mailbox at 25–30 cold emails a day. A campaign pauses itself when bounces reach 3%.
+
 ## First live acceptance test
 
 After all services are configured, test website analysis, discovery and qualification using a small permitted business search. Review the evidence and profile. Connect the client's mailbox. Use a recipient who has explicitly approved this test, record the actual consent, verify the address and review the exact message/sequence. Enable live delivery globally and for that mailbox, approve the campaign, then start it. Verify provider acceptance in Gmail, a real reply, stopped follow-ups and a signed unsubscribe. Confirm actual results against reports. This live acceptance test has not been performed by the local automated tests.

@@ -89,6 +89,7 @@ model PlatformOrganization {
   profileApprovedBy     String?
   onboardingStatus      String                     @default("NEW")
   retentionDays         Int                        @default(365)
+  sendingDomains        String[]                   @default([])
   createdAt             DateTime                   @default(now())
   updatedAt             DateTime                   @updatedAt
   workspace             Workspace                  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
@@ -213,6 +214,7 @@ model PlatformCampaign {
   id                        String                      @id @default(cuid())
   workspaceId               String
   mailboxId                 String?
+  extraMailboxIds           String[]                    @default([])
   templateId                String?
   name                      String
   createdById               String?
@@ -229,7 +231,7 @@ model PlatformCampaign {
   sendStartHour             Int                         @default(0)
   sendEndHour               Int                         @default(24)
   sendWeekdays              Int[]                       @default([1, 2, 3, 4, 5, 6, 7])
-  bounceThresholdPercent    Float                       @default(5)
+  bounceThresholdPercent    Float                       @default(3)
   complaintThresholdPercent Float                       @default(0.1)
   safetyMinimumSent         Int                         @default(20)
   safetyWindowHours         Int                         @default(24)
@@ -347,6 +349,7 @@ model PlatformCampaignRecipient {
   approvedBy  String?
   step        Int              @default(0)
   nextAt      DateTime         @default(now())
+  mailboxId   String?
   createdAt   DateTime         @default(now())
   campaign    PlatformCampaign @relation(fields: [workspaceId, campaignId], references: [workspaceId, id], onDelete: Cascade)
   lead        PlatformLead     @relation(fields: [workspaceId, leadId], references: [workspaceId, id], onDelete: Cascade)
@@ -454,6 +457,9 @@ model PlatformMailbox {
   lastSyncedAt           DateTime?
   lastSentAt             DateTime?
   syncError              String?
+  warmupStartedAt        DateTime?
+  domainHealth           Json?
+  domainCheckedAt        DateTime?
   createdBy              String
   createdAt              DateTime  @default(now())
   updatedAt              DateTime  @updatedAt

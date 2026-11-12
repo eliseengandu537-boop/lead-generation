@@ -11,7 +11,7 @@ import {
   minimumQualificationScore,
 } from "../core";
 import { enqueueJob } from "../jobs";
-import { senderMatchesWebsite } from "../mail/domain";
+import { senderAllowed } from "../mail/domain";
 import { campaignReviewData } from "../mail/review";
 import { verificationConfigured } from "../research/verification";
 import { isSendingProvider, sendingProviders } from "../mail/provider";
@@ -84,7 +84,7 @@ export async function prepareCampaignReview(
     !mailbox ||
     mailbox.status !== "LIVE_ENABLED" ||
     !isSendingProvider(mailbox.provider) ||
-    !senderMatchesWebsite(mailbox.email, [organization.websiteUrl])
+    !senderAllowed(mailbox.email, organization)
   )
     blockers.push(
       "Connect and activate this business's own domain-matched sending mailbox.",

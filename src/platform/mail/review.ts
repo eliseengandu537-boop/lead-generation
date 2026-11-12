@@ -63,6 +63,7 @@ export function campaignReviewData(
           status: mailbox.status,
         }
       : null,
+    extraMailboxIds: campaign.extraMailboxIds,
     subject: campaign.subject,
     body: campaign.body,
     steps: campaign.steps,

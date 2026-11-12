@@ -3,7 +3,8 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { decrypt, encrypt, hash, secret } from "@/lib/security";
 import { HttpError } from "@/lib/auth";
-import { senderMatchesWebsite } from "./domain";
+import { senderAllowed } from "./domain";
+import { refreshDomainHealth } from "./authentication";
 
 // Delegated permissions for the signed-in business mailbox only. Mail.ReadWrite creates the draft
 // that is then sent, so the sent copy can be found again by its immutable ID.
@@ -185,18 +186,19 @@ export async function finishMicrosoftConnection(
   const organization = await db.platformOrganization.findUniqueOrThrow({
     where: { workspaceId },
   });
-  if (!senderMatchesWebsite(email.data, [organization.websiteUrl]))
+  if (!senderAllowed(email.data, organization))
     throw new HttpError(
       400,
-      "Connect the business email for this client's website domain",
+      "Connect a business email on this client's website domain or one of their sending domains",
     );
   const encryptedCredentials = credentials(token, token.refresh_token);
-  return db.platformMailbox.upsert({
+  const mailbox = await db.platformMailbox.upsert({
     where: { workspaceId_email: { workspaceId, email: email.data } },
     create: {
       workspaceId,
       email: email.data,
       provider: "MICROSOFT",
+      warmupStartedAt: new Date(),
       encryptedCredentials,
       createdBy: userId,
     },
@@ -208,6 +210,8 @@ export async function finishMicrosoftConnection(
       lastSyncedAt: null,
     },
   });
+  await refreshDomainHealth(workspaceId, 0, [mailbox.id]);
+  return mailbox;
 }
 
 export async function microsoftToken(

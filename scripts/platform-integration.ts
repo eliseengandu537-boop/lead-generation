@@ -131,6 +131,9 @@ async function main() {
       status: "LIVE_ENABLED",
       createdBy: users[0],
       lastSyncedAt: new Date(),
+      // Fixture domains have no DNS; record a passing SPF/DKIM/DMARC result so sending is not held.
+      domainHealth: { domain: "acme.com", checkedAt: new Date().toISOString(), spf: { status: "PASS", detail: "SPF ok" }, dkim: { status: "PASS", detail: "DKIM ok" }, dmarc: { status: "PASS", detail: "DMARC ok" } },
+      domainCheckedAt: new Date(),
       minimumIntervalSeconds: 5,
       encryptedCredentials: encrypt(
         JSON.stringify({

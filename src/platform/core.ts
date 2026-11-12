@@ -6,7 +6,13 @@ import { personalize, encrypt, decrypt, hash } from "@/lib/security";
 import { campaignReviewData } from "./mail/review";
 import { personalizeFollowup, unfilledEmailFields } from "./mail/content";
 import { enqueueJob } from "./jobs";
-import { senderMatchesWebsite } from "./mail/domain";
+import { senderAllowed } from "./mail/domain";
+import {
+  domainBlockers,
+  domainWarnings,
+  refreshDomainHealth,
+} from "./mail/authentication";
+import { campaignMailboxIds, dailyAllowance } from "./mail/rotation";
 import { isSendingProvider } from "./mail/provider";
 import { verificationConfigured } from "./research/verification";
 import {
@@ -204,6 +210,8 @@ const campaignFields = z.object({
   subject: subject.optional(),
   body: body.optional(),
   mailboxId: z.string().max(100).nullable().optional(),
+  // Further mailboxes the campaign rotates through after mailboxId.
+  extraMailboxIds: z.array(z.string().max(100)).max(20).optional(),
   templateId: z.string().max(100).nullable().optional(),
   leadIds: z.array(z.string().max(100)).max(1000).default([]),
   steps: z.array(step).max(8).default([]),
@@ -245,16 +253,21 @@ async function composeCampaignReview(
       400,
       "A permission request is a single email. Remove the follow-ups; POPIA allows only one request.",
     );
-  const [organization, mailbox, leads, subscription, suppressions, workspace] =
+  const extraIds = [...new Set(values.extraMailboxIds ?? [])].filter(
+    (id) => id !== values.mailboxId,
+  );
+  if (extraIds.length && !values.mailboxId)
+    throw new HttpError(400, "Choose the main sending mailbox before adding more");
+  const [organization, mailboxes, leads, subscription, suppressions, workspace] =
     await Promise.all([
       transaction.platformOrganization.findUniqueOrThrow({
         where: { workspaceId },
       }),
       values.mailboxId
-        ? transaction.platformMailbox.findUnique({
-            where: { id: values.mailboxId },
+        ? transaction.platformMailbox.findMany({
+            where: { id: { in: [values.mailboxId, ...extraIds] } },
           })
-        : null,
+        : [],
       transaction.platformLead.findMany({
         where: { id: { in: values.leadIds }, status: { not: "ARCHIVED" } },
         orderBy: { id: "asc" },
@@ -274,8 +287,12 @@ async function composeCampaignReview(
       400,
       "One or more leads do not belong to this business",
     );
-  if (values.mailboxId && !mailbox)
+  const mailbox = mailboxes.find((item) => item.id === values.mailboxId) ?? null;
+  if (values.mailboxId && mailboxes.length !== 1 + extraIds.length)
     throw new HttpError(400, "Mailbox does not belong to this business");
+  const sending = mailbox
+    ? [mailbox, ...extraIds.map((id) => mailboxes.find((item) => item.id === id)!)]
+    : [];
   const blockers: { message: string; view: string; leadId?: string }[] = [];
   if (process.env.LIVE_EMAIL_ENABLED !== "true")
     blockers.push({
@@ -287,16 +304,36 @@ async function composeCampaignReview(
       message: "Review and approve the business profile and targeting.",
       view: "business",
     });
-  if (
-    !mailbox ||
-    mailbox.status !== "LIVE_ENABLED" ||
-    !isSendingProvider(mailbox.provider) ||
-    !senderMatchesWebsite(mailbox.email, [organization.websiteUrl])
-  )
+  if (!mailbox)
     blockers.push({
       message: "Connect and activate this client's own sending mailbox.",
       view: "mailboxes",
     });
+  for (const each of sending) {
+    if (
+      each.status !== "LIVE_ENABLED" ||
+      !isSendingProvider(each.provider) ||
+      !senderAllowed(each.email, organization)
+    )
+      blockers.push({
+        message:
+          sending.length > 1
+            ? `${each.email}: connect and activate this mailbox, or remove it from the campaign.`
+            : "Connect and activate this client's own sending mailbox.",
+        view: "mailboxes",
+      });
+    for (const problem of domainBlockers(each.domainHealth))
+      blockers.push({ message: `${each.email}: ${problem}`, view: "mailboxes" });
+  }
+  const warnings = sending.flatMap((each) =>
+    domainWarnings(each.domainHealth).map((warning) => `${each.email}: ${warning}`),
+  );
+  const live = sending.filter((each) => each.status === "LIVE_ENABLED");
+  const dailyCapacity = live.reduce((sum, each) => sum + dailyAllowance(each), 0);
+  if (live.length && dailyCapacity < values.dailyLimit)
+    warnings.push(
+      `${live.length === 1 ? "This mailbox sends" : `These ${live.length} mailboxes send`} up to ${dailyCapacity} campaign emails a day${live.some((each) => dailyAllowance(each) < each.dailyLimit) ? " while warming up" : ""}, below this campaign's daily limit of ${values.dailyLimit}. Add mailboxes to send more.`,
+    );
   if (
     !subscription ||
     !["ACTIVE", "TRIAL"].includes(subscription.status) ||
@@ -366,6 +403,9 @@ async function composeCampaignReview(
   const preview = {
     purpose: values.purpose ?? "OUTREACH",
     sender: mailbox?.email || null,
+    senders: sending.map((each) => each.email),
+    dailyCapacity,
+    warnings,
     timezone: workspace.timezone,
     recipients,
     blockers,
@@ -383,7 +423,7 @@ async function composeCampaignReview(
         preview,
         profileApprovedAt: organization.profileApprovedAt,
         qualificationCriteria: organization.qualificationCriteria,
-        mailboxStatus: mailbox?.status,
+        mailboxStatus: sending.map((each) => [each.id, each.status]),
         leadEligibility: leads.map((lead) => ({
           id: lead.id,
           status: lead.status,
@@ -685,6 +725,12 @@ export async function mutateAuthorizedResource(
       ),
     };
   }
+  // DNS lookups stay outside the transaction; the review then reads the stored results.
+  if (
+    resource === "campaigns" &&
+    ["preview", "create-and-send", "start", "resume"].includes(envelope.action)
+  )
+    await refreshDomainHealth(workspaceId, 3600_000);
   return db.$transaction(async (transaction) => {
     await transaction.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${workspaceId}))`;
     const organization =
@@ -1108,6 +1154,22 @@ export async function mutateAuthorizedResource(
               400,
               "Mailbox does not belong to this business",
             );
+          if (values.mailboxId !== undefined || values.extraMailboxIds !== undefined) {
+            const primary =
+              values.mailboxId !== undefined ? values.mailboxId : (existing?.mailboxId ?? null);
+            const extras = [
+              ...new Set(values.extraMailboxIds ?? existing?.extraMailboxIds ?? []),
+            ].filter((id) => id !== primary);
+            if (extras.length && !primary)
+              throw new HttpError(400, "Choose the main sending mailbox before adding more");
+            if (
+              extras.length &&
+              (await transaction.platformMailbox.count({ where: { id: { in: extras } } })) !==
+                extras.length
+            )
+              throw new HttpError(400, "Mailbox does not belong to this business");
+            values.extraMailboxIds = extras;
+          }
           const template = values.templateId
             ? await transaction.platformTemplate.findFirst({
                 where: { id: values.templateId, approvalStatus: "APPROVED" },
@@ -1309,21 +1371,30 @@ export async function mutateAuthorizedResource(
               409,
               "Campaign is held for a sending safety review",
             );
-          const mailbox = existing!.mailboxId
-            ? await transaction.platformMailbox.findUnique({
-                where: { id: existing!.mailboxId },
-              })
-            : null;
+          const rotation = campaignMailboxIds(existing!);
+          const mailboxes = await transaction.platformMailbox.findMany({
+            where: { id: { in: rotation } },
+          });
           if (
-            !mailbox ||
-            mailbox.status !== "LIVE_ENABLED" ||
-            !isSendingProvider(mailbox.provider) ||
-            !senderMatchesWebsite(mailbox.email, [organization.websiteUrl])
+            !existing!.mailboxId ||
+            mailboxes.length !== rotation.length ||
+            mailboxes.some(
+              (mailbox) =>
+                mailbox.status !== "LIVE_ENABLED" ||
+                !isSendingProvider(mailbox.provider) ||
+                !senderAllowed(mailbox.email, organization),
+            )
           )
             throw new HttpError(
               409,
-              "Connect and activate this business's domain-matched mailbox",
+              rotation.length > 1
+                ? "Connect and activate every mailbox in this campaign, or remove the inactive ones"
+                : "Connect and activate this business's domain-matched mailbox",
             );
+          const domainProblem = mailboxes.flatMap((mailbox) =>
+            domainBlockers(mailbox.domainHealth).map((problem) => `${mailbox.email}: ${problem}`),
+          )[0];
+          if (domainProblem) throw new HttpError(409, domainProblem);
           const subscription =
             await transaction.platformSubscription.findUnique({
               where: { workspaceId },
