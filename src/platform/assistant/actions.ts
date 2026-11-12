@@ -13,6 +13,8 @@ import {
 import { enqueueJob } from "../jobs";
 import { senderMatchesWebsite } from "../mail/domain";
 import { campaignReviewData } from "../mail/review";
+import { verificationConfigured } from "../research/verification";
+import { isSendingProvider, sendingProviders } from "../mail/provider";
 import {
   assistantToolSchemas,
   requireUserEmail,
@@ -56,6 +58,11 @@ export async function prepareCampaignReview(
     include: { recipients: { include: { lead: true } } },
   });
   if (!campaign) throw new HttpError(404, "Campaign not found");
+  if (campaign.purpose === "PERMISSION_REQUEST")
+    throw new HttpError(
+      400,
+      "Review and launch permission requests from the business Campaigns page.",
+    );
   if (campaign.recipients.length > 100)
     throw new HttpError(
       400,
@@ -76,7 +83,7 @@ export async function prepareCampaignReview(
   if (
     !mailbox ||
     mailbox.status !== "LIVE_ENABLED" ||
-    mailbox.provider !== "GMAIL" ||
+    !isSendingProvider(mailbox.provider) ||
     !senderMatchesWebsite(mailbox.email, [organization.websiteUrl])
   )
     blockers.push(
@@ -449,13 +456,7 @@ export async function executeAssistantTool(
             );
           payload.leadId = values.leadId;
         }
-        if (
-          kind === "VERIFY_EMAIL" &&
-          !(
-            process.env.EMAIL_VERIFICATION_URL &&
-            process.env.EMAIL_VERIFICATION_API_KEY
-          )
-        )
+        if (kind === "VERIFY_EMAIL" && !verificationConfigured())
           throw new HttpError(
             409,
             "The email verification provider is not connected.",
@@ -466,7 +467,7 @@ export async function executeAssistantTool(
             !(await db.platformMailbox.findFirst({
               where: {
                 id: values.mailboxId,
-                provider: "GMAIL",
+                provider: { in: [...sendingProviders] },
                 status: { in: ["CONNECTED", "LIVE_ENABLED"] },
               },
               select: { id: true },

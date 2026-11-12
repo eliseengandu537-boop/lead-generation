@@ -20,6 +20,7 @@
     "automation:check": "node scripts/local-automation.mjs check",
     "automation:stop": "node scripts/local-automation.mjs stop",
     "test:integration": "node --env-file=.env --import tsx scripts/platform-integration.ts",
+    "test:outreach": "node --import tsx scripts/outreach-flow-check.ts",
     "format": "prettier --write src tests scripts docs n8n README.md package.json tsconfig.json next.config.ts eslint.config.mjs",
     "admin:create": "node --env-file-if-exists=.env --import tsx scripts/create-admin.ts",
     "n8n:generate": "tsx scripts/generate-n8n-workflows.ts"

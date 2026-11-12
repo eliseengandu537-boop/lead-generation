@@ -220,6 +220,7 @@ model PlatformCampaign {
   body                      String
   steps                     Json                        @default("[]")
   target                    Json                        @default("{}")
+  purpose                   String                      @default("OUTREACH")
   status                    String                      @default("DRAFT")
   approvedBy                String?
   approvedAt                DateTime?

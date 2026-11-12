@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { handle } from "@/lib/http";
 import { organizationAccess } from "@/platform/core";
 import { reportData } from "@/platform/analytics";
+import { isSendingProvider } from "@/platform/mail/provider";
 
 export const dynamic = "force-dynamic";
 const viewSchema = z.enum([
@@ -222,7 +223,8 @@ export async function GET(
     if (
       !mailboxes.some(
         (mailbox) =>
-          mailbox.status === "LIVE_ENABLED" && mailbox.provider === "GMAIL",
+          mailbox.status === "LIVE_ENABLED" &&
+          isSendingProvider(mailbox.provider),
       )
     )
       blockers.push(

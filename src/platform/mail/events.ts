@@ -3,6 +3,7 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { HttpError } from "@/lib/auth";
 import { assessMailSafety } from "./policy";
+import { isSendingProvider, providerName } from "./provider";
 
 export async function campaignMailSafety(
   tx: Prisma.TransactionClient,
@@ -149,10 +150,10 @@ export async function recordMailEvent(
       });
       if (!message)
         throw new HttpError(404, "Message not found for this mailbox");
-      if (input.kind === "DELIVERED" && mailbox.provider === "GMAIL")
+      if (input.kind === "DELIVERED" && isSendingProvider(mailbox.provider))
         throw new HttpError(
           400,
-          "Gmail does not provide confirmed message delivery",
+          `${providerName(mailbox.provider)} does not provide confirmed message delivery`,
         );
       if (
         input.occurredAt.getTime() > Date.now() + 300000 ||

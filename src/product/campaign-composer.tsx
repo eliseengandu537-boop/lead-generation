@@ -4,6 +4,21 @@ import { LoaderCircle, Plus, Send, X } from "lucide-react";
 import { api, rows, text, type Organization, type RecordValue } from "./data";
 
 type Step = { delayDays: number; subject: string; body: string };
+// Unfilled {{fields}} block launch, so the template cannot go out unedited.
+const permissionTemplate = {
+  subject: "Quick question for {{company}}",
+  body: "Hello {{company}} team,\n\nI'm reaching out from {{your business}}. We {{what you offer, in one sentence}}.\n\nWould you like to receive occasional emails from us about {{topic}}? Reply YES and we'll be in touch.",
+};
+const recentlyVerified = (lead: RecordValue) =>
+  lead.verificationStatus === "VALID" &&
+  !!lead.verifiedAt &&
+  new Date(text(lead.verifiedAt)).getTime() > Date.now() - 30 * 86400000;
+const replyAfterConsent = (lead: RecordValue) =>
+  !!lead.repliedAt &&
+  !(
+    lead.consentAt &&
+    new Date(text(lead.repliedAt)) <= new Date(text(lead.consentAt))
+  );
 export function CampaignComposer({
   organization,
   accounts,
@@ -25,6 +40,8 @@ export function CampaignComposer({
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const requestId = useRef(crypto.randomUUID());
+  const [purpose, setPurpose] = useState("OUTREACH");
+  const permission = purpose === "PERMISSION_REQUEST";
   const [name, setName] = useState("");
   const [industry, setIndustry] = useState("");
   const [location, setLocation] = useState("");
@@ -47,14 +64,43 @@ export function CampaignComposer({
   const link = (view: string) =>
     setupPath ||
     `/?client=${encodeURIComponent(organization.workspaceId)}&view=${view}`;
+  const ready = leads.filter(
+    (lead) =>
+      lead.email &&
+      recentlyVerified(lead) &&
+      !lead.unsubscribedAt &&
+      (permission
+        ? !lead.repliedAt &&
+          !["CONSENTED", "SUPPRESSED"].includes(text(lead.eligibility))
+        : lead.eligibility === "CONSENTED" && !replyAfterConsent(lead)),
+  );
+  const blockedLeads = [
+    ...new Set(
+      rows(preview?.blockers)
+        .map((blocker) => text(blocker.leadId, ""))
+        .filter(Boolean),
+    ),
+  ];
+  function choosePurpose(value: string) {
+    setPurpose(value);
+    setLeadIds([]);
+    if (value === "PERMISSION_REQUEST") {
+      setSteps([]);
+      if (!subject.trim() && !body.trim()) {
+        setSubject(permissionTemplate.subject);
+        setBody(permissionTemplate.body);
+      }
+    }
+  }
   const payload = {
     name,
+    purpose,
     subject,
     body,
     mailboxId: mailboxId || undefined,
     leadIds,
     dailyLimit,
-    steps,
+    steps: permission ? [] : steps,
     target: { industry, location },
     sendStartHour: timing === "now" ? 0 : 9,
     sendEndHour: timing === "now" ? 24 : 17,
@@ -187,6 +233,42 @@ export function CampaignComposer({
                 </small>
               </div>
             )}
+            {!endpoint && (
+              <label>
+                Campaign type
+                <select
+                  value={purpose}
+                  onChange={(event) => choosePurpose(event.target.value)}
+                >
+                  <option value="OUTREACH">
+                    Outreach email · recipients already gave permission
+                  </option>
+                  <option value="PERMISSION_REQUEST">
+                    One-time permission request (POPIA)
+                  </option>
+                </select>
+              </label>
+            )}
+            {permission && (
+              <div className="campaign-setup-notice" role="note">
+                <b>How permission requests work</b>
+                <ul>
+                  <li>
+                    One email per business, never repeated and never followed
+                    up. POPIA allows asking only once.
+                  </li>
+                  <li>
+                    Monettic adds a fixed notice explaining the request. A
+                    clear YES reply records permission automatically, with the
+                    reply saved as evidence.
+                  </li>
+                  <li>
+                    Any other reply is flagged for you to read before anything
+                    is recorded.
+                  </li>
+                </ul>
+              </div>
+            )}
             <div className="campaign-compose-grid">
               <label>
                 Campaign name
@@ -264,6 +346,17 @@ export function CampaignComposer({
                 Niche and location describe this campaign. Only the recipients
                 selected below receive it.
               </p>
+              {ready.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setLeadIds(ready.map((lead) => text(lead.id)))}
+                >
+                  Select all {ready.length}{" "}
+                  {permission
+                    ? "verified leads not yet asked"
+                    : "verified leads with permission"}
+                </button>
+              )}
               {leads.length ? (
                 <div className="campaign-recipient-list">
                   {leads.map((lead) => (
@@ -337,7 +430,7 @@ export function CampaignComposer({
               Sending uses the workspace timezone and plan limits. Your sending
               computer must be online for queued messages to process.
             </p>
-            {steps.map((step, index) => (
+            {!permission && steps.map((step, index) => (
               <fieldset key={index} className="campaign-followup">
                 <legend>Follow-up {index + 1}</legend>
                 <label>
@@ -390,7 +483,7 @@ export function CampaignComposer({
                 </button>
               </fieldset>
             ))}
-            {steps.length < 8 && (
+            {!permission && steps.length < 8 && (
               <button
                 type="button"
                 onClick={() =>
@@ -435,6 +528,21 @@ export function CampaignComposer({
                     </li>
                   ))}
                 </ul>
+                {blockedLeads.length > 0 &&
+                  blockedLeads.length < leadIds.length && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setLeadIds((current) =>
+                          current.filter((id) => !blockedLeads.includes(id)),
+                        );
+                        setPreview(null);
+                      }}
+                    >
+                      Remove {blockedLeads.length} blocked recipients and
+                      review again
+                    </button>
+                  )}
               </div>
             )}
             {rows(preview.recipients).map((recipient, index) => (

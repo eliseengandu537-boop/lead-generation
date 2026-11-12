@@ -10,6 +10,10 @@ import {
   beginGoogleConnection,
   googleConfigured,
 } from "@/platform/mail/google";
+import {
+  beginMicrosoftConnection,
+  microsoftConfigured,
+} from "@/platform/mail/microsoft";
 import { senderMatchesWebsite } from "@/platform/mail/domain";
 type Context = { params: Promise<{ workspaceId: string }> };
 export async function GET(_request: Request, { params }: Context) {
@@ -17,7 +21,11 @@ export async function GET(_request: Request, { params }: Context) {
     const { workspaceId } = await params;
     await organizationAccess(workspaceId);
     return {
-      configured: googleConfigured(),
+      configured: googleConfigured() || microsoftConfigured(),
+      providers: {
+        google: googleConfigured(),
+        microsoft: microsoftConfigured(),
+      },
       liveConfigured: process.env.LIVE_EMAIL_ENABLED === "true",
       items: await db.platformMailbox.findMany({
         where: { workspaceId },
@@ -47,6 +55,7 @@ const actionSchema = z.object({
     "reconcile",
   ]),
   id: z.string().optional(),
+  provider: z.enum(["GOOGLE", "MICROSOFT"]).default("GOOGLE"),
   messageId: z.string().optional(),
   dailyLimit: z.number().int().min(1).max(1000).optional(),
   minimumIntervalSeconds: z.number().int().min(5).max(3600).optional(),
@@ -64,14 +73,23 @@ export async function POST(request: Request, { params }: Context) {
           "Connect this client's business website first",
         );
       const browser = secret();
-      const url = await beginGoogleConnection(workspaceId, user.id, browser);
-      (await cookies()).set("orbit-google-oauth", browser, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === "production",
-        sameSite: "lax",
-        path: "/api/platform/oauth/google/callback",
-        maxAge: 600,
-      });
+      const microsoft = input.provider === "MICROSOFT";
+      const url = microsoft
+        ? await beginMicrosoftConnection(workspaceId, user.id, browser)
+        : await beginGoogleConnection(workspaceId, user.id, browser);
+      (await cookies()).set(
+        microsoft ? "orbit-microsoft-oauth" : "orbit-google-oauth",
+        browser,
+        {
+          httpOnly: true,
+          secure: process.env.NODE_ENV === "production",
+          sameSite: "lax",
+          path: microsoft
+            ? "/api/platform/oauth/microsoft/callback"
+            : "/api/platform/oauth/google/callback",
+          maxAge: 600,
+        },
+      );
       return { url };
     }
     const mailbox = await db.platformMailbox.findFirst({
@@ -117,7 +135,7 @@ export async function POST(request: Request, { params }: Context) {
           "The platform administrator must enable live email delivery first",
         );
       if (mailbox.status === "RECONNECT_REQUIRED")
-        throw new HttpError(409, "Reconnect the Google account first");
+        throw new HttpError(409, "Reconnect the email account first");
       if (
         !organization.profileApprovedAt ||
         !senderMatchesWebsite(mailbox.email, [organization.websiteUrl])

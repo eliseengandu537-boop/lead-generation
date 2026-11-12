@@ -141,8 +141,8 @@ export default function MonetticApp() {
     !organization?.isDemo &&
     (!!session?.user.superAdmin ||
       ["CLIENT_ADMIN", "OWNER", "ADMIN"].includes(organization?.role || ""));
-  const demoLogin = session?.organizations.some(
-    (entry) => entry.role === "DEMO_VIEWER",
+  const demoLogin = session?.organizations.some((entry) =>
+    ["DEMO_VIEWER", "DEMO_ADMIN"].includes(entry.role),
   );
   const active = navigation.find((entry) => entry.id === tab)!;
   function navigate(next: string) {

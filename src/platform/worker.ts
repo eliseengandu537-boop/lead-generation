@@ -22,6 +22,7 @@ import {
   MailDeferredError,
 } from "./mail";
 import { reportData } from "./analytics";
+import { hasMarketingPermission, replyBlocksOutreach } from "./mail/permission";
 
 async function campaignBatch(job: PlatformJob, campaignId: string) {
   const campaign = await db.platformCampaign.findFirst({
@@ -51,10 +52,16 @@ async function campaignBatch(job: PlatformJob, campaignId: string) {
   let sent = 0,
     stopped = 0;
   for (const recipient of recipients) {
+    const lead = recipient.lead;
     if (
-      recipient.lead.repliedAt ||
-      recipient.lead.unsubscribedAt ||
-      recipient.lead.eligibility !== "CONSENTED"
+      campaign.purpose === "PERMISSION_REQUEST"
+        ? lead.repliedAt ||
+          lead.unsubscribedAt ||
+          lead.eligibility === "SUPPRESSED" ||
+          hasMarketingPermission(lead)
+        : replyBlocksOutreach(lead) ||
+          lead.unsubscribedAt ||
+          lead.eligibility !== "CONSENTED"
     ) {
       await db.platformCampaignRecipient.update({
         where: { id: recipient.id },

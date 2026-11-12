@@ -4,10 +4,22 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { hash, sign } from "@/lib/security";
 import { senderMatchesWebsite } from "./domain";
-import { gmailToken, googleRawMessage } from "./google";
+import { googleRawMessage, mimeMessage } from "./google";
+import {
+  createGraphDraft,
+  graphJson,
+  graphSentCopy,
+  sendGraphDraft,
+} from "./microsoft";
+import { mailboxAccess, providerName, type MailboxAccess } from "./provider";
 import { pauseUnsafeCampaign } from "./events";
 import { withinSendingWindow } from "./schedule";
 import { personalizeFollowup, unfilledEmailFields } from "./content";
+import {
+  permissionAskedLeadIds,
+  permissionRequestBlocker,
+  replyBlocksOutreach,
+} from "./permission";
 
 export class MailDeferredError extends Error {
   constructor(
@@ -50,7 +62,7 @@ export async function sendCampaignMessage(
   if (!campaign.mailboxId)
     throw new Error("Connect this campaign to an authorized business mailbox");
   const dedupeKey = `campaign:${campaignId}:lead:${leadId}:step:${step}`;
-  const token = await gmailToken(workspaceId, campaign.mailboxId, request);
+  const access = await mailboxAccess(workspaceId, campaign.mailboxId, request);
   const reservation = await db.$transaction(
     async (tx) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${workspaceId}))`;
@@ -153,10 +165,12 @@ export async function sendCampaignMessage(
         .object({ minimumScore: z.number().min(0).max(100).optional() })
         .passthrough()
         .safeParse(organization.qualificationCriteria);
+      const threshold = minimumScore.success
+        ? (minimumScore.data.minimumScore ?? 70)
+        : 70;
       if (
         lead.qualificationScore === null ||
-        lead.qualificationScore <
-          (minimumScore.success ? (minimumScore.data.minimumScore ?? 70) : 70)
+        lead.qualificationScore < threshold
       )
         throw new Error(
           "Lead does not meet this campaign's qualification threshold",
@@ -166,9 +180,24 @@ export async function sendCampaignMessage(
           workspaceId_email: { workspaceId, email: lead.email.toLowerCase() },
         },
       });
-      if (
+      if (current.purpose === "PERMISSION_REQUEST") {
+        const blocker =
+          step !== 0
+            ? "A permission request is a single email without follow-ups"
+            : permissionRequestBlocker(
+                lead,
+                threshold,
+                (await permissionAskedLeadIds(tx, [leadId], campaignId)).has(
+                  leadId,
+                ),
+              );
+        if (suppression || blocker)
+          throw new Error(
+            `Permission request blocked: ${blocker || "recipient is suppressed"}`,
+          );
+      } else if (
         suppression ||
-        lead.repliedAt ||
+        replyBlocksOutreach(lead) ||
         lead.unsubscribedAt ||
         lead.eligibility !== "CONSENTED" ||
         !lead.consentSource ||
@@ -319,12 +348,38 @@ export async function sendCampaignMessage(
       status: "ACCEPTED" as const,
       duplicate: true,
     };
-  return deliverReservedMessage(reservation.message, token, request);
+  return deliverReservedMessage(reservation.message, access, request);
+}
+
+async function gmailSend(
+  raw: string,
+  threadId: string | null | undefined,
+  token: string,
+  request: typeof fetch,
+) {
+  const response = await request(
+    "https://gmail.googleapis.com/gmail/v1/users/me/messages/send",
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ raw, ...(threadId ? { threadId } : {}) }),
+      redirect: "error",
+      signal: AbortSignal.timeout(10000),
+    },
+  );
+  if (!response.ok)
+    throw new Error(`Gmail send returned HTTP ${response.status}`);
+  return z
+    .object({ id: z.string().min(1), threadId: z.string().min(1) })
+    .parse(await response.json());
 }
 
 async function deliverReservedMessage(
   message: PlatformMailMessage,
-  token: string,
+  access: MailboxAccess,
   request: typeof fetch,
 ) {
   try {
@@ -336,7 +391,7 @@ async function deliverReservedMessage(
           },
         })
       : null;
-    const raw = googleRawMessage({
+    const mail = {
       from: message.fromEmail,
       to: message.toEmail,
       subject: message.subject,
@@ -351,30 +406,32 @@ async function deliverReservedMessage(
       ...(original
         ? { inReplyTo: original.originalRfcMessageId || original.rfcMessageId }
         : {}),
-    });
-    const response = await request(
-      "https://gmail.googleapis.com/gmail/v1/users/me/messages/send",
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
+    };
+    let sent: { id: string; threadId: string; wireMessageId?: string };
+    if (access.provider === "MICROSOFT") {
+      // The draft's immutable ID is saved before sending, so an interrupted send can be
+      // reconciled against Sent Items instead of being guessed at.
+      const draft = await createGraphDraft(access.token, mimeMessage(mail), request);
+      await db.platformMailMessage.update({
+        where: { id: message.id },
+        data: {
+          providerMessageId: draft.id,
+          providerThreadId: draft.conversationId,
         },
-        body: JSON.stringify({
-          raw,
-          ...(original?.providerThreadId
-            ? { threadId: original.providerThreadId }
-            : {}),
-        }),
-        redirect: "error",
-        signal: AbortSignal.timeout(10000),
-      },
-    );
-    if (!response.ok)
-      throw new Error(`Gmail send returned HTTP ${response.status}`);
-    const sent = z
-      .object({ id: z.string().min(1), threadId: z.string().min(1) })
-      .parse(await response.json());
+      });
+      await sendGraphDraft(access.token, draft.id, request);
+      sent = {
+        id: draft.id,
+        threadId: draft.conversationId,
+        wireMessageId: draft.internetMessageId,
+      };
+    } else
+      sent = await gmailSend(
+        googleRawMessage(mail),
+        original?.providerThreadId,
+        access.token,
+        request,
+      );
     await db.$transaction(async (tx) => {
       await tx.platformMailMessage.update({
         where: { id: message.id },
@@ -382,6 +439,9 @@ async function deliverReservedMessage(
           status: "ACCEPTED",
           providerMessageId: sent.id,
           providerThreadId: sent.threadId,
+          ...(sent.wireMessageId && sent.wireMessageId !== message.rfcMessageId
+            ? { originalRfcMessageId: sent.wireMessageId }
+            : {}),
           error: null,
         },
       });
@@ -419,6 +479,7 @@ async function deliverReservedMessage(
       duplicate: false,
     };
   } catch {
+    const provider = providerName(access.provider);
     await db.platformMailMessage.updateMany({
       where: {
         workspaceId: message.workspaceId,
@@ -427,14 +488,35 @@ async function deliverReservedMessage(
       },
       data: {
         status: "REVIEW_REQUIRED",
-        error:
-          "Send outcome is uncertain or rejected; reconcile with Gmail. Automatic resend is blocked.",
+        error: `Send outcome is uncertain or rejected; reconcile with ${provider}. Automatic resend is blocked.`,
       },
     });
     throw new Error(
-      "Gmail send requires reconciliation; automatic resend is blocked",
+      `${provider} send requires reconciliation; automatic resend is blocked`,
     );
   }
+}
+
+async function microsoftSentCopy(
+  message: PlatformMailMessage,
+  token: string,
+  request: typeof fetch,
+) {
+  if (message.providerMessageId)
+    return graphSentCopy(token, message.providerMessageId, request);
+  const found = z
+    .object({
+      value: z.array(z.object({ id: z.string(), conversationId: z.string() })),
+    })
+    .parse(
+      await graphJson(
+        token,
+        `/me/mailFolders/sentitems/messages?$filter=internetMessageId eq '${message.rfcMessageId.replaceAll("'", "''")}'&$select=id,conversationId`,
+        {},
+        request,
+      ),
+    );
+  return found.value.length === 1 ? found.value[0] : null;
 }
 
 export async function reconcileMessage(
@@ -451,40 +533,48 @@ export async function reconcileMessage(
       status: { in: ["SENDING", "REVIEW_REQUIRED"] },
     },
   });
-  const token = await gmailToken(workspaceId, mailboxId, request);
-  const url = new URL(
-    "https://gmail.googleapis.com/gmail/v1/users/me/messages",
-  );
-  url.searchParams.set(
-    "q",
-    `in:sent rfc822msgid:${message.rfcMessageId.slice(1, -1)}`,
-  );
-  const response = await request(url, {
-    headers: { Authorization: `Bearer ${token}` },
-    redirect: "error",
-    signal: AbortSignal.timeout(10000),
-  });
-  if (!response.ok) throw new Error("Gmail reconciliation failed");
-  const sent = z
-    .object({
-      messages: z
-        .array(z.object({ id: z.string(), threadId: z.string() }))
-        .optional(),
-    })
-    .parse(await response.json());
-  if (sent.messages?.length !== 1)
+  const access = await mailboxAccess(workspaceId, mailboxId, request);
+  let sent: { id: string; threadId: string } | null = null;
+  if (access.provider === "MICROSOFT") {
+    const copy = await microsoftSentCopy(message, access.token, request);
+    if (copy) sent = { id: copy.id, threadId: copy.conversationId };
+  } else {
+    const url = new URL(
+      "https://gmail.googleapis.com/gmail/v1/users/me/messages",
+    );
+    url.searchParams.set(
+      "q",
+      `in:sent rfc822msgid:${message.rfcMessageId.slice(1, -1)}`,
+    );
+    const response = await request(url, {
+      headers: { Authorization: `Bearer ${access.token}` },
+      redirect: "error",
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!response.ok) throw new Error("Gmail reconciliation failed");
+    const found = z
+      .object({
+        messages: z
+          .array(z.object({ id: z.string(), threadId: z.string() }))
+          .optional(),
+      })
+      .parse(await response.json());
+    if (found.messages?.length === 1) sent = found.messages[0];
+  }
+  if (!sent)
     return {
       reconciled: false,
       message:
         "No unique sent message found; this does not prove non-delivery. Resend remains blocked.",
     };
+  const accepted = sent;
   await db.$transaction(async (tx) => {
     await tx.platformMailMessage.update({
       where: { id: message.id },
       data: {
         status: "ACCEPTED",
-        providerMessageId: sent.messages![0].id,
-        providerThreadId: sent.messages![0].threadId,
+        providerMessageId: accepted.id,
+        providerThreadId: accepted.threadId,
         error: null,
       },
     });
@@ -497,7 +587,7 @@ export async function reconcileMessage(
           messageId,
           externalId: `accepted:${messageId}`,
           kind: "SENT_ACCEPTED",
-          detail: "Acceptance recovered from Gmail Sent folder",
+          detail: `Acceptance recovered from the ${providerName(access.provider)} Sent folder`,
         },
       ],
     });
@@ -530,7 +620,7 @@ export async function sendApprovedReply(
   const draft = await db.platformMailMessage.findFirstOrThrow({
     where: { id: messageId, workspaceId, direction: "OUTBOUND" },
   });
-  const token = await gmailToken(workspaceId, draft.mailboxId, request);
+  const access = await mailboxAccess(workspaceId, draft.mailboxId, request);
   const message = await db.$transaction(async (tx) => {
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${workspaceId}))`;
     const current = await tx.platformMailMessage.findFirstOrThrow({
@@ -642,7 +732,7 @@ export async function sendApprovedReply(
     return { messageId, status: "ACCEPTED" as const, duplicate: true };
   return deliverReservedMessage(
     { ...message, status: "SENDING" },
-    token,
+    access,
     request,
   );
 }

@@ -354,11 +354,14 @@ export function MailboxesView({ data, act, canManage, openDialog }: ViewProps) {
   const items = rows(data.items);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  async function connect() {
+  const providers = data.providers
+    ? object(data.providers)
+    : { google: data.configured, microsoft: false };
+  async function connect(provider: "GOOGLE" | "MICROSOFT") {
     setBusy(true);
     setError("");
     try {
-      const result = await act("mailboxes", { action: "connect" });
+      const result = await act("mailboxes", { action: "connect", provider });
       if (typeof result.url === "string") window.location.assign(result.url);
       else
         throw new Error("The email provider did not return a connection link.");
@@ -367,37 +370,47 @@ export function MailboxesView({ data, act, canManage, openDialog }: ViewProps) {
       setBusy(false);
     }
   }
+  const connectButtons = (primary: boolean) => (
+    <span className="inline-actions">
+      <button
+        className={primary ? "primary" : undefined}
+        disabled={busy || !providers.google}
+        onClick={() => void connect("GOOGLE")}
+      >
+        {primary && <Plus size={17} />}
+        Connect Google Workspace
+      </button>
+      <button
+        className={primary ? "primary" : undefined}
+        disabled={busy || !providers.microsoft}
+        onClick={() => void connect("MICROSOFT")}
+      >
+        {primary && <Plus size={17} />}
+        Connect Microsoft 365
+      </button>
+    </span>
+  );
   return (
     <>
       <SectionHeading
         eyebrow="YOUR EMAIL. YOUR IDENTITY."
         title="Your sending identity"
         detail="Connect the business email address your customers know. Each business authorizes its own account."
-        action={
-          canManage && (
-            <button
-              className="primary"
-              disabled={busy || !data.configured}
-              onClick={() => void connect()}
-            >
-              <Plus size={17} />
-              {busy ? "Connecting…" : "Connect business email"}
-            </button>
-          )
-        }
+        action={canManage && connectButtons(true)}
       />
       {error && (
         <div className="alert error" role="alert">
           {error}
         </div>
       )}
-      {!data.configured && (
+      {(!providers.google || !providers.microsoft) && (
         <div className="alert info">
           <ShieldCheck size={18} />
           <span>
-            Business email connection is awaiting the platform’s Google OAuth
-            configuration. Your administrator can complete it before accounts
-            are connected.
+            {!providers.google && !providers.microsoft
+              ? "Business email connection is waiting for the platform's Google and Microsoft 365 sign-in setup."
+              : `${providers.google ? "Microsoft 365" : "Google Workspace"} connection is waiting for the platform's sign-in setup.`}{" "}
+            Your administrator can complete it before accounts are connected.
           </span>
         </div>
       )}
@@ -409,8 +422,8 @@ export function MailboxesView({ data, act, canManage, openDialog }: ViewProps) {
           <p className="eyebrow">BUSINESS EMAIL, CONNECTED</p>
           <h3>Your website. Your sender. One business identity.</h3>
           <p>
-            Connect Gmail or Google Workspace through secure authorization. Your
-            email password is never requested.
+            Connect Google Workspace or Microsoft 365 through secure
+            authorization. Your email password is never requested.
           </p>
         </div>
         <span className="secure-badge">
@@ -429,7 +442,14 @@ export function MailboxesView({ data, act, canManage, openDialog }: ViewProps) {
                 <Badge value={mailbox.status} />
               </div>
               <h3>{text(mailbox.email ?? mailbox.fromEmail)}</h3>
-              <p>{label(mailbox.provider)} · Your connected business account</p>
+              <p>
+                {mailbox.provider === "MICROSOFT"
+                  ? "Microsoft 365"
+                  : mailbox.provider === "GMAIL"
+                    ? "Google Workspace"
+                    : label(mailbox.provider)}{" "}
+                · Your connected business account
+              </p>
               <div className="mailbox-facts">
                 <span>
                   Daily sending limit<b>{text(mailbox.dailyLimit)}</b>
@@ -438,6 +458,19 @@ export function MailboxesView({ data, act, canManage, openDialog }: ViewProps) {
                   Last synchronized<b>{date(mailbox.lastSyncedAt, true)}</b>
                 </span>
               </div>
+              {canManage && mailbox.status === "RECONNECT_REQUIRED" && (
+                <button
+                  className="primary"
+                  disabled={busy}
+                  onClick={() =>
+                    void connect(
+                      mailbox.provider === "MICROSOFT" ? "MICROSOFT" : "GOOGLE",
+                    )
+                  }
+                >
+                  Reconnect {text(mailbox.email)}
+                </button>
+              )}
               {canManage && (
                 <div className="inline-actions">
                   <button
@@ -507,17 +540,7 @@ export function MailboxesView({ data, act, canManage, openDialog }: ViewProps) {
             title="Bring your own business email."
             detail="Once connected, your outreach comes from the account you authorize for this business. Replies return to the same inbox."
             icon={<Mail size={29} strokeWidth={1.4} />}
-            action={
-              canManage && (
-                <button
-                  disabled={!data.configured || busy}
-                  onClick={() => void connect()}
-                >
-                  Connect Gmail / Google Workspace
-                  <ArrowRight size={16} />
-                </button>
-              )
-            }
+            action={canManage && connectButtons(false)}
           />
         </div>
       )}

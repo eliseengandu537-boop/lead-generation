@@ -7,6 +7,15 @@ import { campaignReviewData } from "./mail/review";
 import { personalizeFollowup, unfilledEmailFields } from "./mail/content";
 import { enqueueJob } from "./jobs";
 import { senderMatchesWebsite } from "./mail/domain";
+import { isSendingProvider } from "./mail/provider";
+import { verificationConfigured } from "./research/verification";
+import {
+  campaignPurposes,
+  permissionAskedLeadIds,
+  permissionRequestBlocker,
+  replyBlocksOutreach,
+  withPermissionNotice,
+} from "./mail/permission";
 import { databaseContext } from "@/lib/tenancy";
 
 export async function organizationAccess(
@@ -16,7 +25,11 @@ export async function organizationAccess(
 ) {
   const access = await tenant(workspaceId, manage);
   if (!access.user.agencyAdmin && access.user.staffRole === "CALLER") throw new HttpError(403, "Use your Monettic calling workspace for prospects, calls and meetings.");
-  if (audience === "operations" && !access.user.agencyAdmin)
+  // A demo administrator may read the operator screens of a demo business only; tenant() already
+  // refuses every write because DEMO_ADMIN cannot manage.
+  const demoOperator =
+    !access.user.agencyAdmin && access.role === "DEMO_ADMIN" && !manage;
+  if (audience === "operations" && !access.user.agencyAdmin && !demoOperator)
     throw new HttpError(
       403,
       "Your client portal provides access to results. Workspace operations are managed by your account team.",
@@ -25,6 +38,8 @@ export async function organizationAccess(
     where: { workspaceId },
   });
   if (!organization) throw new HttpError(404, "Organization not found");
+  if (demoOperator && organization.onboardingStatus !== "DEMO")
+    throw new HttpError(403, "Demo access only covers the demo business.");
   if (manage && organization.onboardingStatus === "DEMO")
     throw new HttpError(
       403,
@@ -193,6 +208,8 @@ const campaignFields = z.object({
   leadIds: z.array(z.string().max(100)).max(1000).default([]),
   steps: z.array(step).max(8).default([]),
   target: z.record(z.string(), z.json()).default({}),
+  // No default: Zod applies defaults inside partial updates, which would silently reset it.
+  purpose: z.enum(campaignPurposes).optional(),
   dailyLimit: z.number().int().min(1).max(10000).default(25),
   scheduledAt: z.iso.datetime().nullable().optional(),
   sendStartHour: z.number().int().min(0).max(23).default(8),
@@ -222,6 +239,12 @@ async function composeCampaignReview(
     throw new HttpError(400, "Choose each lead only once");
   if (values.sendStartHour === values.sendEndHour)
     throw new HttpError(400, "Sending start and end hours must differ");
+  const permissionRequest = values.purpose === "PERMISSION_REQUEST";
+  if (permissionRequest && values.steps.length)
+    throw new HttpError(
+      400,
+      "A permission request is a single email. Remove the follow-ups; POPIA allows only one request.",
+    );
   const [organization, mailbox, leads, subscription, suppressions, workspace] =
     await Promise.all([
       transaction.platformOrganization.findUniqueOrThrow({
@@ -243,7 +266,7 @@ async function composeCampaignReview(
       transaction.platformMailSuppression.findMany({ select: { email: true } }),
       transaction.workspace.findUniqueOrThrow({
         where: { id: workspaceId },
-        select: { timezone: true },
+        select: { timezone: true, name: true },
       }),
     ]);
   if (leads.length !== values.leadIds.length)
@@ -253,7 +276,7 @@ async function composeCampaignReview(
     );
   if (values.mailboxId && !mailbox)
     throw new HttpError(400, "Mailbox does not belong to this business");
-  const blockers: { message: string; view: string }[] = [];
+  const blockers: { message: string; view: string; leadId?: string }[] = [];
   if (process.env.LIVE_EMAIL_ENABLED !== "true")
     blockers.push({
       message: "Live campaign sending has not been enabled on the platform.",
@@ -267,7 +290,7 @@ async function composeCampaignReview(
   if (
     !mailbox ||
     mailbox.status !== "LIVE_ENABLED" ||
-    mailbox.provider !== "GMAIL" ||
+    !isSendingProvider(mailbox.provider) ||
     !senderMatchesWebsite(mailbox.email, [organization.websiteUrl])
   )
     blockers.push({
@@ -293,17 +316,25 @@ async function composeCampaignReview(
   const suppressed = new Set(
     suppressions.map((entry) => entry.email.toLowerCase()),
   );
+  const minimum = minimumQualificationScore(organization.qualificationCriteria);
+  const asked = permissionRequest
+    ? await permissionAskedLeadIds(transaction, values.leadIds)
+    : new Set<string>();
   const recipients = leads.map((lead) => {
-    const reason = leadSendBlocker(
-      lead,
-      minimumQualificationScore(organization.qualificationCriteria),
-    );
+    const reason = permissionRequest
+      ? permissionRequestBlocker(lead, minimum, asked.has(lead.id))
+      : leadSendBlocker(lead, minimum);
     if (reason)
-      blockers.push({ message: `${lead.company}: ${reason}`, view: "leads" });
+      blockers.push({
+        message: `${lead.company}: ${reason}`,
+        view: "leads",
+        leadId: lead.id,
+      });
     if (lead.email && suppressed.has(lead.email.toLowerCase()))
       blockers.push({
         message: `${lead.company}: this address is suppressed.`,
         view: "leads",
+        leadId: lead.id,
       });
     const contact = {
       name: lead.name,
@@ -311,7 +342,10 @@ async function composeCampaignReview(
       email: lead.email || "",
     };
     const subject = personalize(values.subject!, contact);
-    const body = personalize(values.body!, contact);
+    const personalized = personalize(values.body!, contact);
+    const body = permissionRequest
+      ? withPermissionNotice(personalized, workspace.name)
+      : personalized;
     const steps = values.steps.map((step) => ({
       ...step,
       subject: personalizeFollowup(step.subject, lead),
@@ -330,6 +364,7 @@ async function composeCampaignReview(
     };
   });
   const preview = {
+    purpose: values.purpose ?? "OUTREACH",
     sender: mailbox?.email || null,
     timezone: workspace.timezone,
     recipients,
@@ -414,7 +449,8 @@ export function leadSendBlocker(
     lead.consentAt > now
   )
     return "Lead needs documented consent";
-  if (lead.repliedAt) return "Lead has replied; follow-ups are stopped";
+  if (replyBlocksOutreach(lead))
+    return "Lead has replied; follow-ups are stopped";
   if (lead.unsubscribedAt) return "Lead has opted out";
   return null;
 }
@@ -597,6 +633,32 @@ export async function mutateAuthorizedResource(
       403,
       "This demo workspace is read-only. No emails can be sent.",
     );
+  if (resource === "leads" && envelope.action === "verify-all") {
+    // Unverified or stale addresses only; a recent result is not paid for twice.
+    const leads = await db.platformLead.findMany({
+      where: {
+        email: { not: null },
+        status: { notIn: ["ARCHIVED", "UNSUBSCRIBED"] },
+        OR: [
+          { verifiedAt: null },
+          { verifiedAt: { lt: new Date(Date.now() - 30 * 86400_000) } },
+        ],
+      },
+      select: { id: true, email: true },
+      orderBy: { createdAt: "asc" },
+      take: 500,
+    });
+    const day = new Date().toISOString().slice(0, 10);
+    for (const lead of leads)
+      await enqueueJob(
+        workspaceId,
+        user.id,
+        "VERIFY_EMAIL",
+        { leadId: lead.id },
+        `verify-all:${lead.id}:${lead.email}:${day}`,
+      );
+    return { queued: leads.length, provider: verificationConfigured() };
+  }
   if (
     resource === "leads" &&
     ["research", "qualify", "verify", "draft"].includes(envelope.action)
@@ -1022,6 +1084,20 @@ export async function mutateAuthorizedResource(
           const values = existing
             ? campaignFields.partial().parse(input)
             : campaignFields.parse(input);
+          // Zod fills defaults inside partial schemas; an update must only change the fields it
+          // was given, or an omitted leadIds/steps would silently clear recipients and follow-ups.
+          if (existing)
+            for (const key of Object.keys(values) as (keyof typeof values)[])
+              if (!(key in (input as object))) delete values[key];
+          const purpose = values.purpose ?? existing?.purpose ?? "OUTREACH";
+          if (
+            purpose === "PERMISSION_REQUEST" &&
+            (values.steps ?? z.array(step).parse(existing?.steps ?? [])).length
+          )
+            throw new HttpError(
+              400,
+              "A permission request is a single email. Remove the follow-ups; POPIA allows only one request.",
+            );
           if (
             values.mailboxId &&
             !(await transaction.platformMailbox.findUnique({
@@ -1138,10 +1214,18 @@ export async function mutateAuthorizedResource(
             );
           if (!existing!.recipients.length)
             throw new HttpError(400, "Select at least one lead");
+          const permissionRequest = existing!.purpose === "PERMISSION_REQUEST";
+          if (permissionRequest && z.array(step).parse(existing!.steps).length)
+            throw new HttpError(
+              409,
+              "A permission request is a single email. Remove the follow-ups before approval.",
+            );
           const approvedAt = new Date();
           for (const recipient of existing!.recipients) {
+            // Lead drafts are outreach copy; a permission request always uses its own message.
             const hasDraft =
               !useCampaignMessage &&
+              !permissionRequest &&
               !!recipient.lead.draftSubject.trim() &&
               !!recipient.lead.draftBody.trim();
             const contact = {
@@ -1150,7 +1234,10 @@ export async function mutateAuthorizedResource(
               email: recipient.lead.email || "",
             };
             const subject = hasDraft ? recipient.lead.draftSubject : personalize(existing!.subject, contact);
-            const body = hasDraft ? recipient.lead.draftBody : personalize(existing!.body, contact);
+            const personalized = hasDraft ? recipient.lead.draftBody : personalize(existing!.body, contact);
+            const body = permissionRequest
+              ? withPermissionNotice(personalized, access.workspace.name)
+              : personalized;
             const missing = unfilledEmailFields(subject, body, ...z.array(step).parse(existing!.steps)
               .flatMap((item) => [personalizeFollowup(item.subject, recipient.lead), personalizeFollowup(item.body, recipient.lead)]));
             if (missing.length)
@@ -1230,6 +1317,7 @@ export async function mutateAuthorizedResource(
           if (
             !mailbox ||
             mailbox.status !== "LIVE_ENABLED" ||
+            !isSendingProvider(mailbox.provider) ||
             !senderMatchesWebsite(mailbox.email, [organization.websiteUrl])
           )
             throw new HttpError(
@@ -1263,6 +1351,14 @@ export async function mutateAuthorizedResource(
           );
           if (!pending.length)
             throw new HttpError(409, "No pending recipients remain");
+          const permissionRequest = existing!.purpose === "PERMISSION_REQUEST";
+          const asked = permissionRequest
+            ? await permissionAskedLeadIds(
+                transaction,
+                pending.map((recipient) => recipient.leadId),
+                existing!.id,
+              )
+            : new Set<string>();
           for (const recipient of pending) {
             if (
               callerOperator &&
@@ -1283,7 +1379,13 @@ export async function mutateAuthorizedResource(
                 409,
                 "Every recipient needs an approved message",
               );
-            const blocker = leadSendBlocker(recipient.lead, minimum);
+            const blocker = permissionRequest
+              ? permissionRequestBlocker(
+                  recipient.lead,
+                  minimum,
+                  asked.has(recipient.leadId),
+                )
+              : leadSendBlocker(recipient.lead, minimum);
             if (blocker)
               throw new HttpError(409, `${recipient.lead.company}: ${blocker}`);
             if (

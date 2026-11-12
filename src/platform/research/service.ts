@@ -8,6 +8,12 @@ import { researchWebsite, normalizeWebsite } from "./web";
 import { searchBusinesses, analyseBusiness } from "./providers";
 import { evidenceSchema } from "./types";
 import {
+  mailDomainCheck,
+  providerVerification,
+  verificationConfigured,
+  verificationSetup,
+} from "./verification";
+import {
   businessProfileSchema,
   qualificationSchema,
   replySchema,
@@ -319,12 +325,7 @@ export async function researchLead(
       `qualify:${lead.id}:${operationKey}`,
       tx,
     );
-    if (
-      research.email &&
-      !duplicate &&
-      process.env.EMAIL_VERIFICATION_URL &&
-      process.env.EMAIL_VERIFICATION_API_KEY
-    )
+    if (research.email && !duplicate && verificationConfigured())
       await enqueueJob(
         workspaceId,
         actorId,
@@ -408,7 +409,11 @@ export async function qualify(
     summary: `${lead.company} scored ${result.score}/100 (${category}).`,
   };
 }
-export async function verifyEmail(workspaceId: string, leadId: string) {
+export async function verifyEmail(
+  workspaceId: string,
+  leadId: string,
+  request: typeof fetch = fetch,
+) {
   const lead = await db.platformLead.findFirst({
     where: { id: leadId, workspaceId },
   });
@@ -417,46 +422,21 @@ export async function verifyEmail(workspaceId: string, leadId: string) {
       409,
       "Save a published business email before verification",
     );
-  if (
-    !process.env.EMAIL_VERIFICATION_URL ||
-    !process.env.EMAIL_VERIFICATION_API_KEY
-  )
-    throw new HttpError(
-      503,
-      "Configure an approved email verification gateway",
-    );
-  const url = new URL(process.env.EMAIL_VERIFICATION_URL);
-  if (url.protocol !== "https:" || url.username || url.password)
-    throw new HttpError(503, "Verification gateway requires HTTPS");
-  const response = await fetch(url, {
-    method: "POST",
-    redirect: "error",
-    headers: {
-      Authorization: `Bearer ${process.env.EMAIL_VERIFICATION_API_KEY}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ email: lead.email }),
-    signal: AbortSignal.timeout(15000),
-  });
-  if (!response.ok)
-    throw new HttpError(
-      502,
-      `Email verification failed (HTTP ${response.status})`,
-    );
-  const result = z
-    .object({
-      email: z.email(),
-      status: z.enum(["VALID", "INVALID", "RISKY", "UNKNOWN"]),
-    })
-    .parse(await response.json());
-  if (result.email.toLowerCase() !== lead.email.toLowerCase())
-    throw new HttpError(502, "Verifier returned a different address");
+  const setup = verificationSetup();
+  const result =
+    (await mailDomainCheck(lead.email)) ??
+    (setup ? await providerVerification(lead.email, setup, request) : null);
+  if (!result)
+    return {
+      summary:
+        "The email domain accepts mail, but the mailbox itself is unconfirmed. Configure an email verification service (MillionVerifier, ZeroBounce or an HTTPS gateway) to finish verification.",
+    };
   await db.platformLead.updateMany({
     where: { id: lead.id, workspaceId, email: lead.email },
     data: { verificationStatus: result.status, verifiedAt: new Date() },
   });
   return {
-    summary: `Email verification result: ${result.status}. Marketing permission remains separate.`,
+    summary: `Email verification result: ${result.status}. ${result.detail} Marketing permission remains separate.`,
   };
 }
 export async function draftEmail(

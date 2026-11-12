@@ -540,6 +540,24 @@ function Leads({ data, act, openDialog, canManage, organization }: ViewProps) {
       submit: () => act("leads", { action, id: lead.id }),
     });
   }
+  const staleBefore = Date.now() - 30 * 86400000;
+  const unverified = items.filter(
+    (lead) =>
+      lead.email &&
+      !["ARCHIVED", "UNSUBSCRIBED"].includes(text(lead.status)) &&
+      (!lead.verifiedAt ||
+        new Date(text(lead.verifiedAt)).getTime() < staleBefore),
+  ).length;
+  function verifyAll() {
+    openDialog({
+      title: `Verify ${unverified} email addresses`,
+      detail:
+        "Every address first gets a free check that its domain can receive email. Addresses on working domains are then checked by your email verification service, which uses its credits. Results update in the background.",
+      fields: [],
+      submitLabel: "Start verification",
+      submit: () => act("leads", { action: "verify-all" }),
+    });
+  }
   return (
     <>
       <SectionHeading
@@ -558,6 +576,9 @@ function Leads({ data, act, openDialog, canManage, organization }: ViewProps) {
       {canManage && (
         <div className="inline-actions">
           <button onClick={() => fileInput.current?.click()}>Import CSV</button>
+          <button onClick={verifyAll} disabled={!unverified}>
+            Verify {unverified} emails
+          </button>
           <span className="subtle">
             Columns: company, email, name, website, industry, location, phone.
             Up to 100 rows.
@@ -1109,14 +1130,26 @@ function Campaigns({
     });
   }
   function addRecipients(campaign: RecordValue) {
+    const permission = campaign.purpose === "PERMISSION_REQUEST";
+    // The reply that granted permission (repliedAt <= consentAt) does not stop outreach.
     const eligible = leads.filter(
       (lead) =>
-        lead.eligibility === "CONSENTED" && !lead.repliedAt && lead.email,
+        lead.email &&
+        !lead.unsubscribedAt &&
+        (permission
+          ? !lead.repliedAt &&
+            !["CONSENTED", "SUPPRESSED"].includes(text(lead.eligibility))
+          : lead.eligibility === "CONSENTED" &&
+            (!lead.repliedAt ||
+              (!!lead.consentAt &&
+                new Date(text(lead.repliedAt)) <=
+                  new Date(text(lead.consentAt))))),
     );
     openDialog({
       title: "Add eligible recipients",
-      detail:
-        "Only leads with recorded permission, an email address and no reply appear here. Delivery performs further eligibility and suppression checks.",
+      detail: permission
+        ? "Only leads with an email address, no recorded permission and no reply appear here. Leads already asked once are blocked when the campaign is approved."
+        : "Only leads with recorded permission, an email address and no later reply appear here. Delivery performs further eligibility and suppression checks.",
       fields: [
         {
           name: "leadId",
@@ -1229,7 +1262,12 @@ function Campaigns({
                 <span className="feature-icon small">
                   <Send size={20} />
                 </span>
-                <Badge value={campaign.status} />
+                <span className="inline-actions">
+                  {campaign.purpose === "PERMISSION_REQUEST" && (
+                    <Badge value="PERMISSION_REQUEST" />
+                  )}
+                  <Badge value={campaign.status} />
+                </span>
               </div>
               <h3>{text(campaign.name)}</h3>
               <p className="campaign-subject">{text(campaign.subject)}</p>

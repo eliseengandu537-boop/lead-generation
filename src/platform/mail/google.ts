@@ -253,6 +253,10 @@ export type OutboundMail = {
   inReplyTo?: string;
 };
 export function googleRawMessage(message: OutboundMail) {
+  return Buffer.from(mimeMessage(message)).toString("base64url");
+}
+/** RFC 5322 plain-text message shared by every sending provider. */
+export function mimeMessage(message: OutboundMail) {
   z.email().parse(message.from);
   z.email().parse(message.to);
   if (/[\r\n]/.test(message.subject))
@@ -284,13 +288,13 @@ export function googleRawMessage(message: OutboundMail) {
     if (message.oneClickUrl)
       headers.push("List-Unsubscribe-Post: List-Unsubscribe=One-Click");
   }
-  return Buffer.from(
+  return (
     headers.join("\r\n") +
-      "\r\n\r\n" +
-      (
-        Buffer.from(message.body)
-          .toString("base64")
-          .match(/.{1,76}/g) || []
-      ).join("\r\n"),
-  ).toString("base64url");
+    "\r\n\r\n" +
+    (
+      Buffer.from(message.body)
+        .toString("base64")
+        .match(/.{1,76}/g) || []
+    ).join("\r\n")
+  );
 }
