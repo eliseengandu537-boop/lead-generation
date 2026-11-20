@@ -63,9 +63,8 @@ export function BusinessView({ data, act, canManage, openDialog }: ViewProps) {
   return (
     <>
       <SectionHeading
-        eyebrow="CONTEXT THAT CONNECTS"
-        title="Your business, understood."
-        detail="Connect your website so Monettic can understand what you do, who you serve and where your next customers might be."
+        title="Website & targeting"
+        detail="What your business does and who you want to reach. Lead research and emails are built from this."
       />
       <div className="business-layout">
         <div className="surface business-connection">
@@ -178,35 +177,6 @@ export function BusinessView({ data, act, canManage, openDialog }: ViewProps) {
             </div>
           )}
         </div>
-        <aside className="note-card business-context">
-          <Sparkles size={27} />
-          <h3>
-            A little context.
-            <br />A lot more relevance.
-          </h3>
-          <p>
-            The better Monettic understands your business, the more specific
-            your research and outreach can be.
-          </p>
-          <ul className="check-list">
-            <li>
-              <Check size={15} />
-              Your actual products and services
-            </li>
-            <li>
-              <Check size={15} />
-              Your target customers and markets
-            </li>
-            <li>
-              <Check size={15} />
-              Your business evidence and sources
-            </li>
-            <li>
-              <Check size={15} />
-              Your approval before activation
-            </li>
-          </ul>
-        </aside>
       </div>
       {Object.keys(profile).length ? (
         <div className="surface section-space">
@@ -531,8 +501,7 @@ export function MailboxesView(props: ViewProps) {
   return (
     <>
       <SectionHeading
-        eyebrow="YOUR EMAIL. YOUR IDENTITY."
-        title="Your sending identity"
+        title="Sending accounts"
         detail="Connect the business mailboxes outreach is sent from. Campaigns can rotate across several mailboxes so each one stays at a safe daily volume."
         action={canManage && connectButtons(true)}
       />
@@ -552,23 +521,6 @@ export function MailboxesView(props: ViewProps) {
           </span>
         </div>
       )}
-      <div className="email-hero surface">
-        <div className="email-envelope">
-          <Mail size={35} strokeWidth={1.2} />
-        </div>
-        <div>
-          <p className="eyebrow">BUSINESS EMAIL, CONNECTED</p>
-          <h3>Your website. Your sender. One business identity.</h3>
-          <p>
-            Connect Google Workspace or Microsoft 365 through secure
-            authorization. Your email password is never requested.
-          </p>
-        </div>
-        <span className="secure-badge">
-          <ShieldCheck size={15} />
-          Secure OAuth
-        </span>
-      </div>
       <SendingDomains {...props} />
       {items.length ? (
         <div className="mailbox-grid">
@@ -723,20 +675,6 @@ export function MailboxesView(props: ViewProps) {
           />
         </div>
       )}
-      <div className="trust-strip">
-        <span>
-          <ShieldCheck size={18} />
-          Credentials stay encrypted
-        </span>
-        <span>
-          <Globe2 size={18} />
-          Only the client’s own domains can send
-        </span>
-        <span>
-          <CheckCircle2 size={18} />
-          Separate campaign approval before outreach
-        </span>
-      </div>
     </>
   );
 }
@@ -747,9 +685,8 @@ export function TeamView({ data, act, canManage, openDialog }: ViewProps) {
   return (
     <>
       <SectionHeading
-        eyebrow="BUILD SOMETHING TOGETHER"
-        title="One business. A well-connected team."
-        detail="Give clients and their team access to their results portal. Platform administrators manage business operations."
+        title="Team"
+        detail="People who can sign in to this workspace's results portal."
         action={
           canManage && (
             <button
@@ -930,9 +867,8 @@ export function BillingView({ data }: ViewProps) {
   return (
     <>
       <SectionHeading
-        eyebrow="ROOM FOR YOUR NEXT CHAPTER"
-        title="A plan that grows with your business."
-        detail="Keep your business allowances and subscription in view."
+        title="Billing"
+        detail="Your plan, what it includes and when it renews."
       />
       <div className="billing-summary surface">
         <span className="feature-icon">
@@ -1061,7 +997,6 @@ export function SettingsView({
   return (
     <>
       <SectionHeading
-        eyebrow="THE DETAILS MATTER"
         title="Workspace settings"
         detail="Set your business name and the timezone your outreach follows."
       />

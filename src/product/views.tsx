@@ -51,6 +51,7 @@ import {
   SettingsView,
 } from "./workspace-views";
 import { OverviewView } from "./overview-view";
+import { OutreachView } from "./outreach-view";
 import { AutomationView } from "./automation-view";
 import { MetricNumber, TrendChart } from "./charts";
 import { CampaignComposer } from "./campaign-composer";
@@ -75,6 +76,8 @@ function valueAt(data: RecordValue, ...keys: string[]) {
 }
 export function ResourceView(props: ViewProps) {
   switch (props.tab) {
+    case "outreach":
+      return <OutreachView {...props} />;
     case "overview":
       return <OverviewView {...props} />;
     case "automation":
@@ -180,10 +183,26 @@ function Discovery({ data, act, canManage, navigate }: ViewProps) {
   return (
     <>
       <SectionHeading
-        eyebrow="A BETTER WAY TO PROSPECT"
-        title="Find the businesses that fit."
-        detail="Start with your business. Discover the companies most likely to need what you do."
+        title="Find leads"
+        detail="Describe who you want to reach. AI finds matching businesses and shows the evidence behind each one."
       />
+      <ol className="ws-howto" aria-label="How finding leads works">
+        <li>
+          <b>1</b> Describe who you want below
+        </li>
+        <li>
+          <b>2</b> New leads land in{" "}
+          <button className="text-button" onClick={() => navigate("leads")}>
+            My leads
+          </button>
+        </li>
+        <li>
+          <b>3</b> Select them, then Check emails and Research &amp; score
+        </li>
+        <li>
+          <b>4</b> Start a campaign with the best ones
+        </li>
+      </ol>
       <div className="discovery-layout">
         <div className="surface discovery-form">
           <span className="feature-icon">
@@ -268,7 +287,8 @@ function Discovery({ data, act, canManage, navigate }: ViewProps) {
             <div className="form-footer">
               <p>
                 <ShieldCheck size={15} />
-                Public business sources. Recorded evidence.
+                Public contact details are not permission to email. Check
+                permission before adding a lead to a campaign.
               </p>
               <button className="primary" disabled={busy || !canManage}>
                 <Sparkles size={16} />
@@ -287,53 +307,14 @@ function Discovery({ data, act, canManage, navigate }: ViewProps) {
               {result}
             </div>
           )}
+          <button
+            className="text-button discovery-profile-link"
+            onClick={() => navigate("business")}
+          >
+            Results follow your business profile. Review it
+            <ArrowUpRight size={15} />
+          </button>
         </div>
-        <aside className="discovery-notes">
-          <div className="note-card lime">
-            <Sparkles size={25} />
-            <h3>
-              Better context.
-              <br />
-              Better connections.
-            </h3>
-            <p>
-              Monettic uses your website and approved business profile to
-              understand what you offer and who would benefit.
-            </p>
-            <button
-              className="text-button"
-              onClick={() => navigate("business")}
-            >
-              Review your business profile
-              <ArrowUpRight size={15} />
-            </button>
-          </div>
-          <div className="note-card">
-            <h3>Thoughtful by design.</h3>
-            <ul className="check-list">
-              <li>
-                <Check size={15} />
-                Source evidence for discovered businesses
-              </li>
-              <li>
-                <Check size={15} />
-                Relevance scores with an explanation
-              </li>
-              <li>
-                <Check size={15} />
-                Duplicate detection within your workspace
-              </li>
-              <li>
-                <Check size={15} />
-                Your approval before outreach
-              </li>
-            </ul>
-            <p className="fine-print">
-              Public contact information does not automatically give permission
-              for marketing. Review eligibility before adding leads to outreach.
-            </p>
-          </div>
-        </aside>
       </div>
       <Jobs items={rows(data.jobs ?? data.items)} />
     </>
@@ -366,10 +347,7 @@ export function Jobs({ items }: { items: RecordValue[] }) {
                 </td>
                 <td>{date(job.createdAt, true)}</td>
                 <td>
-                  {text(
-                    job.error ?? job.message ?? job.lastError,
-                    "Processing details appear here.",
-                  )}
+                  {text(job.error ?? job.message ?? job.lastError, "—")}
                 </td>
               </tr>
             ))}
@@ -458,21 +436,52 @@ function cleanLead(input: RecordValue) {
     ),
   };
 }
-function Leads({ data, act, openDialog, canManage, organization }: ViewProps) {
+function Leads({
+  data,
+  act,
+  openDialog,
+  canManage,
+  organization,
+  navigate,
+}: ViewProps) {
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const [bulkBusy, setBulkBusy] = useState(false);
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("ALL");
   const [selected, setSelected] = useState<RecordValue | null>(null);
   const [importNotice, setImportNotice] = useState("");
   const fileInput = useRef<HTMLInputElement>(null);
   const [sort, setSort] = useState("newest");
+  const [page, setPage] = useState(0);
+  const pageSize = 50;
+  useEffect(() => setPage(0), [search, filter, sort]);
   const items = rows(data.items);
+  const checkedRecently = (lead: RecordValue) =>
+    lead.verificationStatus === "VALID" &&
+    !!lead.verifiedAt &&
+    new Date(text(lead.verifiedAt)).getTime() > Date.now() - 30 * 86400000;
+  /** Stage filters plus three work queues: unchecked emails, unscored leads, ready leads. */
+  function matchesFilter(lead: RecordValue) {
+    if (filter === "ALL") return true;
+    if (filter === "@unchecked") return !!lead.email && !checkedRecently(lead);
+    if (filter === "@unscored")
+      return lead.qualificationScore === null || lead.qualificationScore === undefined;
+    if (filter === "@ready")
+      return (
+        checkedRecently(lead) &&
+        lead.qualificationScore !== null &&
+        lead.qualificationScore !== undefined &&
+        !lead.unsubscribedAt
+      );
+    return lead.status === filter;
+  }
   const visible = items
     .filter(
       (lead) =>
         `${text(lead.company, "")} ${text(lead.name, "")} ${text(lead.email, "")} ${text(lead.industry, "")}`
           .toLowerCase()
           .includes(search.toLowerCase()) &&
-        (filter === "ALL" || lead.status === filter),
+        matchesFilter(lead),
     )
     .sort((a, b) =>
       sort === "score"
@@ -558,12 +567,40 @@ function Leads({ data, act, openDialog, canManage, organization }: ViewProps) {
       submit: () => act("leads", { action: "verify-all" }),
     });
   }
+  async function bulk(operation: "research" | "verify") {
+    const ids = [...picked].slice(0, 500);
+    setBulkBusy(true);
+    try {
+      await act("leads", { action: "bulk", operation, ids });
+      setPicked(new Set());
+    } catch (problem) {
+      setImportNotice((problem as Error).message);
+    } finally {
+      setBulkBusy(false);
+    }
+  }
+  function startCampaign() {
+    try {
+      window.sessionStorage.setItem(
+        "monettic-campaign-leads",
+        JSON.stringify({
+          workspaceId: organization.workspaceId,
+          ids: [...picked],
+        }),
+      );
+    } catch {
+      /* Without session storage the builder opens with no leads picked. */
+    }
+    navigate("campaigns");
+  }
+  const pageItems = visible.slice(page * pageSize, (page + 1) * pageSize);
+  const pageAllPicked =
+    pageItems.length > 0 && pageItems.every((lead) => picked.has(text(lead.id)));
   return (
     <>
       <SectionHeading
-        eyebrow="PEOPLE BEHIND THE OPPORTUNITIES"
-        title="Lead intelligence"
-        detail="A clear view of every business, every fit and every next step."
+        title="My leads"
+        detail="Every business in this workspace, with its fit score, stage and marketing permission."
         action={
           canManage && (
             <button className="primary" onClick={() => edit()}>
@@ -647,7 +684,8 @@ function Leads({ data, act, openDialog, canManage, organization }: ViewProps) {
       )}
       <div className="lead-summary">
         <span>
-          <b>{items.length}</b> businesses in your workspace
+          <b>{count(items.length)}</b>{" "}
+          {items.length >= 1000 ? "newest leads shown" : "leads"}
         </span>
         <span>
           <i className="dot lime-dot" />
@@ -682,7 +720,13 @@ function Leads({ data, act, openDialog, canManage, organization }: ViewProps) {
             value={filter}
             onChange={(event) => setFilter(event.target.value)}
           >
-            <option value="ALL">All stages</option>
+            <option value="ALL">All leads</option>
+            <optgroup label="To do">
+              <option value="@unchecked">Email not checked</option>
+              <option value="@unscored">Not scored yet</option>
+              <option value="@ready">Checked and scored</option>
+            </optgroup>
+            <optgroup label="Stage">
             {[...new Set(items.map((lead) => text(lead.status)))].map(
               (status) => (
                 <option value={status} key={status}>
@@ -690,6 +734,7 @@ function Leads({ data, act, openDialog, canManage, organization }: ViewProps) {
                 </option>
               ),
             )}
+            </optgroup>
           </select>
           <button
             onClick={() => downloadCsv("monettic-leads.csv", visible)}
@@ -708,11 +753,62 @@ function Leads({ data, act, openDialog, canManage, organization }: ViewProps) {
             <option value="score">Highest fit score</option>
           </select>
         </div>
+        {canManage && picked.size > 0 && (
+          <div className="bulk-bar" role="region" aria-label="Selected leads">
+            <b>{count(picked.size)} selected</b>
+            {picked.size < visible.length && (
+              <button
+                className="text-button"
+                onClick={() =>
+                  setPicked(new Set(visible.map((lead) => text(lead.id))))
+                }
+              >
+                Select all {count(visible.length)} in this view
+              </button>
+            )}
+            <button className="text-button" onClick={() => setPicked(new Set())}>
+              Clear
+            </button>
+            <span className="bulk-actions">
+              <button disabled={bulkBusy} onClick={() => void bulk("verify")}>
+                <CircleCheck size={15} />
+                Check emails
+              </button>
+              <button disabled={bulkBusy} onClick={() => void bulk("research")}>
+                <Target size={15} />
+                Research &amp; score
+              </button>
+              <button className="primary" disabled={bulkBusy} onClick={startCampaign}>
+                <Send size={15} />
+                Start a campaign
+              </button>
+            </span>
+          </div>
+        )}
         {visible.length ? (
+          <>
           <div className="table-scroll">
             <table className="lead-table">
               <thead>
                 <tr>
+                  {canManage && (
+                    <th className="pick-cell">
+                      <input
+                        type="checkbox"
+                        aria-label="Select every lead on this page"
+                        checked={pageAllPicked}
+                        onChange={(event) =>
+                          setPicked((current) => {
+                            const next = new Set(current);
+                            for (const lead of pageItems)
+                              if (event.target.checked) next.add(text(lead.id));
+                              else next.delete(text(lead.id));
+                            return next;
+                          })
+                        }
+                      />
+                    </th>
+                  )}
                   <th>Business / contact</th>
                   <th>Industry / location</th>
                   <th>Fit score</th>
@@ -722,8 +818,28 @@ function Leads({ data, act, openDialog, canManage, organization }: ViewProps) {
                 </tr>
               </thead>
               <tbody>
-                {visible.map((lead) => (
-                  <tr key={text(lead.id)}>
+                {pageItems.map((lead) => (
+                  <tr
+                    key={text(lead.id)}
+                    className={picked.has(text(lead.id)) ? "is-picked" : undefined}
+                  >
+                    {canManage && (
+                      <td className="pick-cell">
+                        <input
+                          type="checkbox"
+                          aria-label={`Select ${text(lead.company)}`}
+                          checked={picked.has(text(lead.id))}
+                          onChange={(event) =>
+                            setPicked((current) => {
+                              const next = new Set(current);
+                              if (event.target.checked) next.add(text(lead.id));
+                              else next.delete(text(lead.id));
+                              return next;
+                            })
+                          }
+                        />
+                      </td>
+                    )}
                     <td>
                       <button
                         className="business-cell"
@@ -792,6 +908,28 @@ function Leads({ data, act, openDialog, canManage, organization }: ViewProps) {
               </tbody>
             </table>
           </div>
+            <div className="table-pager">
+              <span>
+                Showing {count(page * pageSize + 1)}–
+                {count(Math.min(visible.length, (page + 1) * pageSize))} of{" "}
+                {count(visible.length)}
+              </span>
+              <span className="inline-actions">
+                <button
+                  disabled={page === 0}
+                  onClick={() => setPage((value) => value - 1)}
+                >
+                  Previous
+                </button>
+                <button
+                  disabled={(page + 1) * pageSize >= visible.length}
+                  onClick={() => setPage((value) => value + 1)}
+                >
+                  Next
+                </button>
+              </span>
+            </div>
+          </>
         ) : (
           <Empty
             title={
@@ -989,12 +1127,34 @@ function Campaigns({
 }: ViewProps) {
   const [search, setSearch] = useState("");
   const [composing, setComposing] = useState(false);
+  const [presetLeads, setPresetLeads] = useState<string[]>([]);
   const [selected, setSelected] = useState<RecordValue | null>(null);
   const items = rows(data.items);
   const [accounts, setAccounts] = useState<RecordValue[]>([]);
   const [leads, setLeads] = useState<RecordValue[]>([]);
+  const [leadsLoaded, setLeadsLoaded] = useState(false);
   const [performance, setPerformance] = useState<RecordValue[]>([]);
   const [connectionError, setConnectionError] = useState("");
+  useEffect(() => {
+    // "Start a campaign" in My leads hands its selection over through session storage.
+    if (!leadsLoaded || !canManage) return;
+    try {
+      const handoff = JSON.parse(
+        window.sessionStorage.getItem("monettic-campaign-leads") || "null",
+      );
+      window.sessionStorage.removeItem("monettic-campaign-leads");
+      if (
+        handoff?.workspaceId === organization.workspaceId &&
+        Array.isArray(handoff.ids) &&
+        handoff.ids.length
+      ) {
+        setPresetLeads(handoff.ids.map(String));
+        setComposing(true);
+      }
+    } catch {
+      /* Session storage can be unavailable; the builder still opens by hand. */
+    }
+  }, [leadsLoaded, canManage, organization.workspaceId]);
   useEffect(() => {
     const controller = new AbortController();
     void Promise.all([
@@ -1021,6 +1181,7 @@ function Campaigns({
         setAccounts(rows(mailboxes.items));
         setLeads(rows(prospects.items));
         setPerformance(rows(reports.campaigns));
+        setLeadsLoaded(true);
       })
       .catch((error) => {
         if (!controller.signal.aborted) setConnectionError(error.message);
@@ -1184,14 +1345,13 @@ function Campaigns({
   return (
     <>
       <SectionHeading
-        eyebrow="OUTREACH WITH INTENTION"
-        title="Outreach campaigns"
-        detail="Personalized messages, a thoughtful pace and a clear view of every campaign."
+        title="Campaigns"
+        detail="Your email campaigns and how each one is doing over the last 30 days."
         action={
           canManage && (
             <button className="primary" onClick={() => edit()}>
               <Plus size={17} />
-              Create and send
+              New campaign
             </button>
           )
         }
@@ -1203,7 +1363,11 @@ function Campaigns({
           leads={leads}
           sending={object(data.sending)}
           act={act}
-          close={() => setComposing(false)}
+          initialLeadIds={presetLeads}
+          close={() => {
+            setComposing(false);
+            setPresetLeads([]);
+          }}
         />
       )}
       {connectionError && (
@@ -1259,9 +1423,7 @@ function Campaigns({
           {visible.map((campaign) => (
             <article className="surface campaign-card" key={text(campaign.id)}>
               <div className="card-heading">
-                <span className="feature-icon small">
-                  <Send size={20} />
-                </span>
+                <h3>{text(campaign.name)}</h3>
                 <span className="inline-actions">
                   {campaign.purpose === "PERMISSION_REQUEST" && (
                     <Badge value="PERMISSION_REQUEST" />
@@ -1269,7 +1431,6 @@ function Campaigns({
                   <Badge value={campaign.status} />
                 </span>
               </div>
-              <h3>{text(campaign.name)}</h3>
               <p className="campaign-subject">{text(campaign.subject)}</p>
               <p className="campaign-audience">
                 {[
@@ -1314,33 +1475,22 @@ function Campaigns({
                   <span>Qualified</span>
                 </div>
               </div>
-              <div className="campaign-facts">
-                <span>
-                  <b>
-                    {count(
-                      campaign.recipientCount ??
-                        object(campaign._count).recipients ??
-                        rows(campaign.recipients).length,
-                    )}
-                  </b>
-                  Recipients
-                </span>
-                <span>
-                  <b>{count(campaign.dailyLimit)}</b>Daily limit
-                </span>
-                <span>
-                  <b>
-                    {text(campaign.sendStartHour, "9")}–
-                    {text(campaign.sendEndHour, "17")}
-                  </b>
-                  Sending hours
-                </span>
-              </div>
+              <p className="campaign-facts">
+                {count(
+                  campaign.recipientCount ??
+                    object(campaign._count).recipients ??
+                    rows(campaign.recipients).length,
+                )}{" "}
+                recipients · {count(campaign.dailyLimit)} a day · sends{" "}
+                {String(text(campaign.sendStartHour, "9")).padStart(2, "0")}:00–
+                {String(text(campaign.sendEndHour, "17")).padStart(2, "0")}:00
+              </p>
               <p className="fine-print">
-                Performance · last 30 days
-                <br />
-                {rows(campaign.steps).length} follow-ups · Created{" "}
-                {date(campaign.createdAt)}
+                {rows(campaign.steps).length
+                  ? `${rows(campaign.steps).length} follow-up${rows(campaign.steps).length === 1 ? "" : "s"}`
+                  : "Single email"}{" "}
+                · created {date(campaign.createdAt)} · results for the last 30
+                days
               </p>
               <div className="campaign-actions">
                 <button
@@ -1519,9 +1669,8 @@ function Templates({ data, act, openDialog, canManage }: ViewProps) {
   return (
     <>
       <SectionHeading
-        eyebrow="A VOICE THAT'S YOURS"
-        title="Your message library"
-        detail="Keep your best messages together. Refine, review and reuse them with care."
+        title="Templates"
+        detail="Reusable emails you can start a campaign from."
         action={
           canManage && (
             <button className="primary" onClick={() => edit()}>
@@ -1703,9 +1852,8 @@ function InboxView({ data, act, openDialog, canManage }: ViewProps) {
   return (
     <>
       <SectionHeading
-        eyebrow="WHERE OPPORTUNITY REPLIES"
-        title="Conversations"
-        detail="Incoming replies, clear intent and a thoughtful next step."
+        title="Inbox"
+        detail="Replies to your campaigns, sorted by what the person wants."
       />
       <div className="inbox-folders" role="group" aria-label="Message folders">
         {[
@@ -1981,9 +2129,8 @@ function Notifications({ data, act }: ViewProps) {
   return (
     <>
       <SectionHeading
-        eyebrow="YOU'RE IN THE LOOP"
-        title="Workspace signals"
-        detail="New opportunities, campaign updates and conversations that need your attention."
+        title="Notifications"
+        detail="Updates about your leads, campaigns and replies."
         action={
           <button
             disabled={!items.some((item) => !item.readAt)}
@@ -2088,9 +2235,8 @@ function Reports({ data, organization }: ViewProps) {
   return (
     <>
       <SectionHeading
-        eyebrow="PROGRESS, WITH PERSPECTIVE"
-        title="Performance intelligence"
-        detail="A clear view of your outreach, built from recorded business and provider events."
+        title="Reports"
+        detail="Results for any date range, ready to download."
         action={
           <div className="inline-actions">
             <button

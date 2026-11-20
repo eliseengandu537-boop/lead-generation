@@ -201,9 +201,8 @@ export function AutomationView({ data, organization, refresh }: ViewProps) {
   return (
     <>
       <SectionHeading
-        eyebrow="OPERATIONS / AUTOMATION"
-        title="Every operation, in view."
-        detail="Follow research, outreach and inbox processing across your business. Every count comes from your recorded operations."
+        title="Automation"
+        detail="Background jobs such as lead research, email checks and sending, and how each one went."
         action={
           <button onClick={refresh}>
             <RefreshCw size={15} /> Refresh activity

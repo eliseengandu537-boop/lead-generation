@@ -6,26 +6,19 @@ import {
   ArrowUpRight,
   Bell,
   Building2,
-  ChartNoAxesCombined,
   ChevronDown,
-  CircleHelp,
-  CreditCard,
-  FileText,
-  Globe2,
   Inbox,
-  LayoutDashboard,
   LogOut,
   Menu,
   Plus,
-  Radar,
   RefreshCw,
   Send,
   Settings2,
   ShieldCheck,
   Users,
-  Workflow,
   X,
 } from "lucide-react";
+import { Tabs } from "./admin-ui";
 import {
   api,
   object,
@@ -37,28 +30,69 @@ import { ActionDialog, type Dialog, Loading, MonetticMark } from "./primitives";
 import { ResourceView } from "./views";
 import { ThemeToggle } from "./theme";
 
-const navigation = [
-  { id: "overview", label: "Overview", icon: LayoutDashboard },
-  { id: "discovery", label: "AI Lead Finder", icon: Radar },
-  { id: "leads", label: "My Leads", icon: Users },
-  { id: "campaigns", label: "Email outreach", icon: Send },
-  { id: "inbox", label: "Email Inbox", icon: Inbox },
-  { id: "templates", label: "Email Templates", icon: FileText },
-  { id: "reports", label: "Analytics", icon: ChartNoAxesCombined },
-  { id: "business", label: "My Website", icon: Globe2 },
-  { id: "mailboxes", label: "Email Connections", icon: Building2 },
-  { id: "automation", label: "Automation", icon: Workflow },
-  { id: "notifications", label: "Notifications", icon: Bell },
-  { id: "team", label: "Team", icon: Users },
-  { id: "billing", label: "Billing", icon: CreditCard },
-  { id: "settings", label: "Settings", icon: Settings2 },
+/** The client workspace is built around one job: email outreach. Each menu section can hold
+ * several views shown as tabs; `extra` views stay reachable by link but are not in the menu. */
+const sections: {
+  id: string;
+  label: string;
+  icon: typeof Send;
+  group: string;
+  views: { id: string; label: string }[];
+  extra?: string[];
+}[] = [
+  {
+    id: "outreach",
+    label: "Email Outreach",
+    icon: Send,
+    group: "",
+    views: [{ id: "outreach", label: "Email outreach" }],
+    extra: [
+      "overview",
+      "reports",
+      "campaigns",
+      "templates",
+      "discovery",
+      "business",
+      "automation",
+    ],
+  },
+  {
+    id: "leads",
+    label: "Leads",
+    icon: Users,
+    group: "",
+    views: [{ id: "leads", label: "Leads" }],
+  },
+  {
+    id: "replies",
+    label: "Replies",
+    icon: Inbox,
+    group: "",
+    views: [{ id: "inbox", label: "Replies" }],
+  },
+  {
+    id: "settings",
+    label: "Settings",
+    icon: Settings2,
+    group: "",
+    views: [
+      { id: "mailboxes", label: "Sending inbox" },
+      { id: "settings", label: "Workspace" },
+      { id: "team", label: "Team" },
+      { id: "billing", label: "Billing" },
+      { id: "notifications", label: "Notifications" },
+    ],
+  },
 ];
-const groups = ["INTELLIGENCE", "WORKSPACE"];
+const navigation = sections.flatMap((section) => [
+  ...section.views,
+  ...(section.extra ?? []).map((id) => ({ id, label: id })),
+]);
 
 export default function MonetticApp() {
   const [session, setSession] = useState<SessionView | null>(null);
   const [organizationId, setOrganizationId] = useState("");
-  const [tab, setTab] = useState("overview");
+  const [tab, setTab] = useState("outreach");
   const [value, setValue] = useState<RecordValue>({});
   const [loading, setLoading] = useState(true);
   const [mobile, setMobile] = useState(false);
@@ -144,7 +178,10 @@ export default function MonetticApp() {
   const demoLogin = session?.organizations.some((entry) =>
     ["DEMO_VIEWER", "DEMO_ADMIN"].includes(entry.role),
   );
-  const active = navigation.find((entry) => entry.id === tab)!;
+  const section = sections.find(
+    (entry) =>
+      entry.views.some((view) => view.id === tab) || entry.extra?.includes(tab),
+  )!;
   function navigate(next: string) {
     const address = new URL(window.location.href);
     address.searchParams.set("client", organizationId);
@@ -194,14 +231,14 @@ export default function MonetticApp() {
         const result = await api("/api/platform/organizations", "POST", input);
         const created = object(result.organization ?? result);
         setOrganizationId(String(created.workspaceId || created.id || ""));
-        setTab("overview");
+        setTab("outreach");
         refresh();
         setNotice("Your business workspace is ready.");
       },
     });
   }
   return (
-    <div className="orbit-app">
+    <div className="orbit-app adm-v2 ws-v2">
       {mobile && (
         <button
           className="mobile-scrim"
@@ -225,7 +262,7 @@ export default function MonetticApp() {
               value={organizationId}
               onChange={(event) => {
                 setOrganizationId(event.target.value);
-                setTab("overview");
+                setTab("outreach");
                 setNotice("");
                 setDialog(null);
               }}
@@ -243,19 +280,24 @@ export default function MonetticApp() {
           <ChevronDown size={14} />
         </div>
         <nav aria-label="Main navigation">
-          {navigation.map((entry, index) => (
-            <div key={entry.id}>
-              {(index === 0 || index === 7) && (
-                <p className="nav-label">{groups[index === 0 ? 0 : 1]}</p>
-              )}
-              <button
-                className={entry.id === tab ? "nav-link active" : "nav-link"}
-                onClick={() => navigate(entry.id)}
-              >
-                <entry.icon size={18} strokeWidth={1.7} />
-                <span>{entry.label}</span>
-                {entry.id === tab && <span className="nav-indicator" />}
-              </button>
+          {[""].map((group) => (
+            <div className="ws-nav-group" key={group || "main"}>
+              {group && <p className="nav-label">{group}</p>}
+              {sections
+                .filter((entry) => entry.group === group)
+                .map((entry) => (
+                  <button
+                    key={entry.id}
+                    className={
+                      entry.id === section.id ? "nav-link active" : "nav-link"
+                    }
+                    aria-current={entry.id === section.id ? "page" : undefined}
+                    onClick={() => navigate(entry.views[0].id)}
+                  >
+                    <entry.icon size={18} strokeWidth={1.7} />
+                    <span>{entry.label}</span>
+                  </button>
+                ))}
             </div>
           ))}
         </nav>
@@ -273,13 +315,6 @@ export default function MonetticApp() {
               <ArrowUpRight size={13} />
             </Link>
           )}
-          <div className="sidebar-help">
-            <CircleHelp size={17} />
-            <div>
-              <b>Built for your business.</b>
-              <p>Your data. Your email. Your voice.</p>
-            </div>
-          </div>
           <button
             className="profile-button"
             onClick={() => void signOut({ callbackUrl: "/login" })}
@@ -307,10 +342,10 @@ export default function MonetticApp() {
             </button>
             <span>{organization?.name || "Your workspace"}</span>
             <span className="breadcrumb-divider">/</span>
-            <b>{active.label}</b>
+            <b>{section.label}</b>
           </div>
           <div className="topbar-actions">
-            <ThemeToggle />
+            <ThemeToggle compact />
             <button
               className="icon-button"
               onClick={refresh}
@@ -333,16 +368,20 @@ export default function MonetticApp() {
         </header>
         <main className="page-content" id="main-content">
           {organization?.isDemo && (
-            <div className="alert" role="note">
+            <div className="alert ws-demo-note" role="note">
               <span>
-                <b>Client dashboard demo · Read-only</b>
-                <br />
-                Explore the website profile, leads, campaigns, inbox and
-                reports. All companies, messages and results are fictional
-                examples. No website tracking, searches or emails run from this
-                workspace.
+                <b>Demo workspace, read-only.</b> The companies and results are
+                made up, and nothing here sends email or runs searches.
               </span>
             </div>
+          )}
+          {organization && section.views.length > 1 && !section.extra?.includes(tab) && (
+            <Tabs
+              label={`${section.label} sections`}
+              value={tab}
+              onChange={navigate}
+              items={section.views}
+            />
           )}
           {notice && (
             <div className="alert success" role="status">
@@ -392,14 +431,6 @@ export default function MonetticApp() {
             />
           )}
         </main>
-        <footer className="workspace-footer">
-          <span>
-            <MonetticMark small />
-            MONETTIC
-          </span>
-          <p>Business intelligence. Deliberate outreach.</p>
-          <span>Private to your organization</span>
-        </footer>
       </div>
       {dialog && <ActionDialog dialog={dialog} close={() => setDialog(null)} />}
     </div>

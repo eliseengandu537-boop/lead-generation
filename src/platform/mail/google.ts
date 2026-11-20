@@ -255,6 +255,8 @@ export type OutboundMail = {
   unsubscribeUrl?: string;
   oneClickUrl?: string;
   inReplyTo?: string;
+  /** Where the lead's reply goes, e.g. the client's sales reps plus the sending inbox. */
+  replyTo?: string[];
 };
 export function googleRawMessage(message: OutboundMail) {
   return Buffer.from(mimeMessage(message)).toString("base64url");
@@ -276,6 +278,12 @@ export function mimeMessage(message: OutboundMail) {
     "Content-Transfer-Encoding: base64",
     `Message-ID: ${message.rfcMessageId}`,
   ];
+  const replyTo = [
+    ...new Set(
+      (message.replyTo ?? []).map((address) => z.email().parse(address.trim())),
+    ),
+  ];
+  if (replyTo.length) headers.push(`Reply-To: ${replyTo.join(", ")}`);
   if (message.inReplyTo) {
     if (/[\r\n]/.test(message.inReplyTo))
       throw new Error("Invalid reply reference");

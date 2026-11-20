@@ -70,14 +70,11 @@ export function ClientLoginDialog({
     window.setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
   return (
-    <DetailPanel title="Create client login" close={busy ? () => {} : close}>
+    <DetailPanel title="Add a client" close={busy ? () => {} : close}>
       <div className="client-access-panel">
         <div className="dialog-heading">
           <div>
-            <p className="eyebrow">CLIENT ACCESS</p>
-            <h2>
-              {result ? "Your client’s login is ready." : "Create client login"}
-            </h2>
+            <h2>{result ? "Client added." : "Add a client"}</h2>
           </div>
           <button
             className="icon-button"
@@ -156,15 +153,26 @@ export function ClientLoginDialog({
               the details privately with them. Their login does not give access
               to platform administration or sending controls.
             </p>
-            <button className="client-access-done" onClick={close}>
-              Done
-            </button>
+            <div className="client-access-actions">
+              {!!object(result.workspace).id && (
+                <a
+                  className="button primary"
+                  href={`/?client=${encodeURIComponent(text(object(result.workspace).id))}&view=outreach`}
+                >
+                  Start setting up {text(object(result.workspace).name)}
+                </a>
+              )}
+              <button className="client-access-done" onClick={close}>
+                Done
+              </button>
+            </div>
           </>
         ) : (
           <>
             <p className="dialog-detail">
-              Enter their email and we’ll generate a strong password. Choose
-              their business or create one here.
+              Their business gets its own workspace and they get a login to see
+              their results. Next, a checklist walks you through getting them
+              sending.
             </p>
             <form
               className="client-access-fields"
@@ -276,9 +284,7 @@ export function ClientLoginDialog({
                 ) : (
                   <KeyRound size={17} />
                 )}
-                {busy
-                  ? "Creating login…"
-                  : "Create login and generate password"}
+                {busy ? "Adding client…" : "Add client"}
               </button>
             </form>
           </>

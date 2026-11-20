@@ -21,7 +21,16 @@ import {
   type Field,
 } from "./primitives";
 
-export default function CallCentre() {
+/** "calls" = call log and bookings, "team" = callers and calling setup,
+ * "sources" = automatic lead settings, "all" = everything (the original page). */
+export type CallCentreView = "all" | "calls" | "team" | "sources";
+export default function CallCentre({
+  view = "all",
+}: {
+  view?: CallCentreView;
+}) {
+  const show = (...views: CallCentreView[]) =>
+    view === "all" || views.includes(view);
   const [data, setData] = useState<RecordValue>({});
   const [workspace, setWorkspace] = useState("");
   const [days, setDays] = useState("30");
@@ -301,24 +310,26 @@ export default function CallCentre() {
     URL.revokeObjectURL(url);
   }
   return (
-    <div className="call-centre">
-      <SectionHeading
-        title="Call centre"
-        detail="Assign callers, manage their business access and follow real sales activity."
-        action={
-          <div className="caller-actions">
-            <a className="button" href="/caller">
-              <Phone size={15} /> Open caller dashboard
-            </a>
-            <button onClick={addBusiness}>
-              <Plus size={15} /> Connect website
-            </button>
-            <button className="primary" onClick={() => callerForm()}>
-              <Plus size={15} /> Create caller
-            </button>
-          </div>
-        }
-      />
+    <div className={`call-centre call-centre-${view}`}>
+      {view === "all" && (
+        <SectionHeading
+          title="Call centre"
+          detail="Assign callers, manage their business access and follow real sales activity."
+          action={
+            <div className="caller-actions">
+              <a className="button" href="/caller">
+                <Phone size={15} /> Open caller dashboard
+              </a>
+              <button onClick={addBusiness}>
+                <Plus size={15} /> Connect website
+              </button>
+              <button className="primary" onClick={() => callerForm()}>
+                <Plus size={15} /> Create caller
+              </button>
+            </div>
+          }
+        />
+      )}
       {error && (
         <div className="alert error" role="alert">
           {error}
@@ -329,6 +340,7 @@ export default function CallCentre() {
           {notice}
         </div>
       )}
+      {view !== "sources" && (
       <div className="caller-toolbar">
         <select
           aria-label="Call centre business filter"
@@ -365,11 +377,30 @@ export default function CallCentre() {
         >
           <RefreshCw size={17} />
         </button>
+        {view !== "all" && (
+          <div className="caller-actions caller-toolbar-actions">
+            <a className="button" href="/caller">
+              <Phone size={15} /> Open caller dashboard
+            </a>
+            {view === "team" && (
+              <>
+                <button onClick={addBusiness}>
+                  <Plus size={15} /> Connect website
+                </button>
+                <button className="primary" onClick={() => callerForm()}>
+                  <Plus size={15} /> Create caller
+                </button>
+              </>
+            )}
+          </div>
+        )}
       </div>
+      )}
       {!data.callers ? (
         <Loading />
       ) : (
         <>
+          {show("calls") && (
           <div className="caller-metrics">
             {[
               ["Phone calls logged", totals.phoneLogs],
@@ -385,6 +416,8 @@ export default function CallCentre() {
               </div>
             ))}
           </div>
+          )}
+          {show("team") && (
           <section className="surface">
             <SectionHeading
               title="Caller performance & access"
@@ -471,11 +504,19 @@ export default function CallCentre() {
               />
             )}
           </section>
+          )}
+          {show("sources") && (
           <section className="surface">
             <SectionHeading
               title="Automatic calling leads"
               detail="Any business type across South Africa or your chosen areas. Public listing evidence is saved with each prospect; the caller confirms website needs during the conversation."
             />
+            {!businesses.length && (
+              <p className="muted">
+                No active client businesses yet. Demo workspaces don&apos;t
+                collect calling leads.
+              </p>
+            )}
             {businesses.map((business) => (
               <article
                 className="caller-booking"
@@ -519,6 +560,8 @@ export default function CallCentre() {
               </details>
             )}
           </section>
+          )}
+          {show("team") && (
           <section className="surface">
             <SectionHeading
               title="Calling connections"
@@ -586,6 +629,8 @@ export default function CallCentre() {
               </article>
             ))}
           </section>
+          )}
+          {show("calls") && (
           <section className="surface">
             <SectionHeading
               title="Recent calls"
@@ -644,6 +689,8 @@ export default function CallCentre() {
               />
             )}
           </section>
+          )}
+          {show("calls") && (
           <section className="surface">
             <SectionHeading
               title="Bookings"
@@ -679,6 +726,7 @@ export default function CallCentre() {
               />
             )}
           </section>
+          )}
         </>
       )}
       {dialog && <ActionDialog dialog={dialog} close={() => setDialog(null)} />}

@@ -176,7 +176,12 @@ async function campaignBatch(job: PlatformJob, campaignId: string) {
   const remaining = await db.platformCampaignRecipient.count({
     where: { workspaceId: job.workspaceId, campaignId, status: "QUEUED" },
   });
-  if (!remaining) {
+  // The outreach autopilot keeps one campaign open and tops it up every day.
+  const autopilot =
+    !!campaign.target &&
+    typeof campaign.target === "object" &&
+    (campaign.target as { autopilot?: unknown }).autopilot === true;
+  if (!remaining && !autopilot) {
     await db.platformCampaign.updateMany({
       where: {
         id: campaignId,

@@ -90,6 +90,8 @@ model PlatformOrganization {
   onboardingStatus      String                     @default("NEW")
   retentionDays         Int                        @default(365)
   sendingDomains        String[]                   @default([])
+  /// Outreach autopilot: niches, the email, reply-to sales reps and its running state.
+  outreach              Json                       @default("{}")
   createdAt             DateTime                   @default(now())
   updatedAt             DateTime                   @updatedAt
   workspace             Workspace                  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)

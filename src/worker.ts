@@ -1,8 +1,17 @@
 import { workerTick } from "./platform/worker";
 import { sendIdentityEmails } from "./lib/identity";
 import { prospectingTick } from "./platform/calling/prospecting";
+import { outreachTick } from "./platform/outreach";
 import { db, assertTenantDatabase } from "./lib/db";
 import { setTimeout as pause } from "node:timers/promises";
+import { setServers as setDnsServers } from "node:dns";
+// Some Windows machines hand Node an unreachable resolver (127.0.0.1), which breaks the MX and
+// SPF/DKIM/DMARC lookups. DNS_SERVERS (comma-separated) overrides them; connections are unaffected.
+const dnsServers = (process.env.DNS_SERVERS || "")
+  .split(",")
+  .map((server) => server.trim())
+  .filter(Boolean);
+if (dnsServers.length) setDnsServers(dnsServers);
 let stopping = false;
 const shutdown = new AbortController();
 process.on("SIGINT", () => {
@@ -42,6 +51,7 @@ async function main() {
     loop("Platform jobs", workerTick),
     loop("Account notifications", sendIdentityEmails),
     loop("Calling prospects", prospectingTick),
+    loop("Outreach autopilot", outreachTick),
   ]);
   await db.$disconnect();
 }

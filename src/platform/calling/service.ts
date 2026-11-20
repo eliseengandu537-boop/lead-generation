@@ -777,6 +777,15 @@ export async function callerAction(workspaceId: string, raw: unknown) {
           requestHash,
         },
       });
+      // A booked call moves the lead into the "Call booked" stage of the sales pipeline.
+      await tx.platformLead.updateMany({
+        where: {
+          workspaceId,
+          id: lead.id,
+          status: { notIn: ["CONVERTED", "MEETING_BOOKED", "ARCHIVED"] },
+        },
+        data: { status: "MEETING_BOOKED" },
+      });
       await notifyBooking(tx, created, user.name, lead.company, "BOOKED");
       result = {
         id: created.id,

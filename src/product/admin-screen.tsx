@@ -2,21 +2,20 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import {
-  Activity,
   ArrowLeft,
   ArrowUpRight,
   Bot,
-  ChartNoAxesCombined,
+  CalendarClock,
   Check,
   ChevronRight,
+  CircleAlert,
   CreditCard,
   ExternalLink,
   Globe2,
-  Inbox,
   KeyRound,
-  Phone,
   LayoutDashboard,
   Menu,
+  PenLine,
   Plus,
   Radar,
   RefreshCw,
@@ -24,6 +23,8 @@ import {
   Send,
   Settings2,
   ShieldCheck,
+  SquareKanban,
+  TriangleAlert,
   Users,
   X,
 } from "lucide-react";
@@ -43,99 +44,155 @@ import {
   Empty,
   Loading,
   MonetticMark,
-  SectionHeading,
   type Dialog,
 } from "./primitives";
 import { ThemeToggle } from "./theme";
-import { MetricNumber, TrendChart } from "./charts";
+import { TrendChart } from "./charts";
 import { ClientLoginDialog } from "./client-login-dialog";
 import AssistantScreen from "./assistant-screen";
 import CallCentre from "./call-centre";
+import SalesPipeline from "./sales-pipeline";
+import ContentLibrary from "./content-library";
 import { AdminBookingBell } from "./admin-booking-bell";
+import {
+  Funnel,
+  Panel,
+  Progress,
+  RowMenu,
+  Stat,
+  Stats,
+  Tabs,
+  compact,
+  percent,
+} from "./admin-ui";
 
-const navigation = [
+type SectionId =
+  | "overview"
+  | "assistant"
+  | "lead-generation"
+  | "outreach"
+  | "pipeline"
+  | "content"
+  | "clients"
+  | "settings";
+const navigation: {
+  id: SectionId;
+  label: string;
+  icon: typeof Bot;
+  detail: string;
+  group: "" | "GROW" | "MANAGE";
+}[] = [
+  {
+    id: "overview",
+    label: "Overview",
+    icon: LayoutDashboard,
+    detail: "Every client, campaign and booked call in one view.",
+    group: "",
+  },
   {
     id: "assistant",
     label: "AI Assistant",
     icon: Bot,
-    detail: "Ask your OpenAI assistant to work with your clients and outreach.",
+    detail: "Ask the assistant to work with your clients and outreach.",
+    group: "",
   },
   {
-    id: "command",
-    label: "Command Centre",
-    icon: LayoutDashboard,
-    detail: "Every business. One clear perspective.",
-  },
-  {
-    id: "clients",
-    label: "Clients",
-    icon: Users,
-    detail: "The businesses building their next chapter.",
-  },
-  {
-    id: "websites",
-    label: "Websites",
-    icon: Globe2,
-    detail: "A closer look at every connected business.",
-  },
-  {
-    id: "leads",
-    label: "Lead Intelligence",
+    id: "lead-generation",
+    label: "Lead Generation",
     icon: Radar,
-    detail: "From discovery to meaningful opportunity.",
+    detail: "Find, research and score the right businesses for each client.",
+    group: "GROW",
   },
   {
     id: "outreach",
     label: "Email Outreach",
     icon: Send,
-    detail: "Understand the health of every conversation.",
+    detail: "Campaigns, replies and sending health for every client.",
+    group: "GROW",
   },
   {
-    id: "call-centre",
-    label: "Call Centre",
-    icon: Phone,
-    detail: "Caller access, conversations, qualified prospects and bookings.",
+    id: "pipeline",
+    label: "Sales Pipeline",
+    icon: SquareKanban,
+    detail:
+      "Every opportunity, from first contact to a booked call and a won deal.",
+    group: "GROW",
   },
   {
-    id: "inbox",
-    label: "Inbox Monitoring",
-    icon: Inbox,
-    detail: "Response signals without private email content.",
+    id: "content",
+    label: "Content",
+    icon: PenLine,
+    detail: "Email scripts and templates for every client.",
+    group: "GROW",
   },
   {
-    id: "automation",
-    label: "Automation Centre",
-    icon: Bot,
-    detail: "The operations behind every outcome.",
-  },
-  {
-    id: "analytics",
-    label: "Analytics",
-    icon: ChartNoAxesCombined,
-    detail: "A precise view of platform performance.",
-  },
-  {
-    id: "subscriptions",
-    label: "Subscriptions",
-    icon: CreditCard,
-    detail: "Plans, allowances and client subscriptions.",
+    id: "clients",
+    label: "Clients",
+    icon: Users,
+    detail: "Client accounts, websites, logins and plans.",
+    group: "MANAGE",
   },
   {
     id: "settings",
-    label: "Platform Settings",
+    label: "Settings",
     icon: Settings2,
-    detail: "A clear picture of platform readiness.",
+    detail: "Platform connections and controls.",
+    group: "MANAGE",
   },
 ];
-const compact = (value: unknown) => number(value).toLocaleString("en-ZA");
-const positiveMetrics = [
-  { key: "replies", label: "Replies" },
-  { key: "positive", label: "Positive replies" },
+/** Old section names still work in links, such as booking emails (?section=call-centre). */
+const legacySections: Record<string, SectionId> = {
+  command: "overview",
+  analytics: "overview",
+  subscriptions: "overview",
+  websites: "clients",
+  leads: "lead-generation",
+  automation: "lead-generation",
+  inbox: "outreach",
+  campaigns: "outreach",
+  "call-centre": "pipeline",
+};
+function sectionFrom(value: string | null): SectionId | null {
+  if (!value) return null;
+  if (navigation.some((item) => item.id === value)) return value as SectionId;
+  return legacySections[value] ?? null;
+}
+const periodic: SectionId[] = ["overview", "lead-generation", "outreach"];
+const campaignStatuses = [
+  "ALL",
+  "DRAFT",
+  "PENDING_APPROVAL",
+  "APPROVED",
+  "RUNNING",
+  "PAUSED",
+  "COMPLETED",
+  "CANCELLED",
 ];
+const jobStatuses = [
+  "ALL",
+  "QUEUED",
+  "WAITING_AUTOMATION",
+  "READY",
+  "RUNNING",
+  "SUCCEEDED",
+  "FAILED",
+  "REVIEW_REQUIRED",
+];
+const DAY = 86400000;
+const clientLink = (workspaceId: unknown, view?: string) =>
+  `/?client=${encodeURIComponent(text(workspaceId, ""))}${view ? `&view=${view}` : ""}`;
+type Attention = {
+  tone: "bad" | "warn" | "info";
+  title: string;
+  detail: string;
+  action?: { label: string; onClick?: () => void; href?: string };
+};
 
 export default function AdminScreen() {
   const [data, setData] = useState<RecordValue>({});
   const [insights, setInsights] = useState<RecordValue>({});
+  const [pipeline, setPipeline] = useState<RecordValue>({});
+  const [setup, setSetup] = useState<RecordValue>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -144,7 +201,8 @@ export default function AdminScreen() {
     workspaceId?: string;
   } | null>(null);
   const [revision, setRevision] = useState(0);
-  const [tab, setTab] = useState("assistant");
+  const [tab, setTab] = useState<SectionId>("overview");
+  const [outreachTab, setOutreachTab] = useState("campaigns");
   const [mobile, setMobile] = useState(false);
   const [days, setDays] = useState("30");
   const [from, setFrom] = useState("");
@@ -158,9 +216,19 @@ export default function AdminScreen() {
   const [detailError, setDetailError] = useState("");
   const [jobStatus, setJobStatus] = useState("ALL");
   const [campaignStatus, setCampaignStatus] = useState("ALL");
+  const [campaignClient, setCampaignClient] = useState("ALL");
+  const [campaignSearch, setCampaignSearch] = useState("");
+  const [operationBusiness, setOperationBusiness] = useState("");
   const inspector = useRef<HTMLElement>(null);
   const period = range || `days=${days}`;
-  useEffect(() => { if (new URLSearchParams(window.location.search).get("section") === "call-centre") setTab("call-centre"); }, []);
+  useEffect(() => {
+    const requested = new URLSearchParams(window.location.search).get(
+      "section",
+    );
+    const section = sectionFrom(requested);
+    if (section) setTab(section);
+    if (requested === "inbox") setOutreachTab("inbox");
+  }, []);
   useEffect(() => {
     const controller = new AbortController();
     setLoading(true);
@@ -188,6 +256,21 @@ export default function AdminScreen() {
       });
     return () => controller.abort();
   }, [revision, period]);
+  useEffect(() => {
+    // The pipeline summary feeds the overview, the attention list and the sidebar count.
+    const controller = new AbortController();
+    api("/api/platform/admin/pipeline", "GET", undefined, controller.signal)
+      .then((result) => !controller.signal.aborted && setPipeline(result))
+      .catch(() => {
+        /* The overview still works without pipeline figures. */
+      });
+    api("/api/platform/admin/setup", "GET", undefined, controller.signal)
+      .then((result) => !controller.signal.aborted && setSetup(object(result.clients)))
+      .catch(() => {
+        /* Setup progress is optional on the client list. */
+      });
+    return () => controller.abort();
+  }, [revision]);
   useEffect(() => {
     if (!selected) return;
     const controller = new AbortController();
@@ -259,12 +342,27 @@ export default function AdminScreen() {
     setRevision((value) => value + 1);
     return result;
   }
-  function navigate(id: string) {
-    setTab(id === "campaigns" ? "outreach" : id);
+  function navigate(id: string, sub?: string) {
+    const next = sectionFrom(id) ?? "overview";
+    setTab(next);
+    if (next === "outreach")
+      setOutreachTab(sub ?? (id === "inbox" ? "inbox" : "campaigns"));
     setMobile(false);
     setSearch("");
     setStatus("ALL");
     setSelected("");
+    const address = new URL(window.location.href);
+    address.searchParams.set("section", next);
+    window.history.replaceState(null, "", address);
+    if (id === "subscriptions")
+      window.setTimeout(
+        () =>
+          document
+            .getElementById("plans")
+            ?.scrollIntoView({ behavior: "smooth" }),
+        200,
+      );
+    else window.scrollTo({ top: 0 });
   }
   function inspect(id: string) {
     if (id === selected) return;
@@ -277,12 +375,36 @@ export default function AdminScreen() {
     totals = object(insights.totals),
     directory = rows(insights.directory),
     series = rows(insights.series),
-    configuration = object(insights.configuration);
-  const [operationBusiness, setOperationBusiness] = useState("");
-  function workspaceTools(view: string, title: string) {
-    const available = organizations.filter(
-      (item) => item.status === "ACTIVE" && item.onboardingStatus !== "DEMO",
+    configuration = object(insights.configuration),
+    campaigns = rows(insights.campaigns),
+    stages = rows(pipeline.stages),
+    bookings = object(pipeline.bookings);
+  const stageTotal = (id: string) =>
+    number(stages.find((stage) => stage.id === id)?.total);
+  const orgById = new Map(
+    organizations.map((item) => [text(item.workspaceId), item]),
+  );
+  const lookup = new Map(
+    directory.map((item) => [text(item.workspaceId), item]),
+  );
+  const businessName = (id: unknown) =>
+    text(
+      lookup.get(text(id))?.name ?? orgById.get(text(id))?.name,
+      "Client",
     );
+  const periodSum = (key: string) =>
+    series.reduce((sum, day) => sum + number(day[key]), 0);
+  const rangeLabel = range
+    ? `${text(object(insights.range).from)} to ${text(object(insights.range).to)}`
+    : `last ${days} days`;
+  const activeClients = organizations.filter(
+    (item) => item.status === "ACTIVE" && item.onboardingStatus !== "DEMO",
+  );
+
+  function workspaceTools(view: string, title: string) {
+    const available = activeClients.length
+      ? activeClients
+      : organizations.filter((item) => item.status === "ACTIVE");
     const chosen = available.some(
       (item) => item.workspaceId === operationBusiness,
     )
@@ -290,40 +412,25 @@ export default function AdminScreen() {
       : text(available[0]?.workspaceId, "");
     if (!chosen) return null;
     return (
-      <div className="surface admin-workspace-tools">
-        <label>
-          Client business
-          <select
-            value={chosen}
-            onChange={(event) => setOperationBusiness(event.target.value)}
-          >
-            {available.map((item) => (
-              <option
-                key={text(item.workspaceId)}
-                value={text(item.workspaceId)}
-              >
-                {text(item.name)}
-              </option>
-            ))}
-          </select>
-        </label>
-        <Link
-          className="button primary"
-          href={`/?client=${encodeURIComponent(chosen)}&view=${view}`}
+      <div className="adm-client-jump">
+        <select
+          aria-label="Choose a client"
+          value={chosen}
+          onChange={(event) => setOperationBusiness(event.target.value)}
         >
+          {available.map((item) => (
+            <option key={text(item.workspaceId)} value={text(item.workspaceId)}>
+              {text(item.name)}
+            </option>
+          ))}
+        </select>
+        <Link className="button primary" href={clientLink(chosen, view)}>
           {title}
-          <ArrowUpRight size={16} />
+          <ArrowUpRight size={15} />
         </Link>
       </div>
     );
   }
-  const active = navigation.find((item) => item.id === tab)!;
-  const lookup = new Map(
-    directory.map((organization) => [
-      text(organization.workspaceId),
-      organization,
-    ]),
-  );
   const filtered = useMemo(
     () =>
       rows(insights.directory)
@@ -334,7 +441,8 @@ export default function AdminScreen() {
               .includes(search.toLowerCase()) &&
             (status === "ALL" ||
               organization.connectionStatus === status ||
-              organization.analysisStatus === status),
+              organization.analysisStatus === status ||
+              organization.subscriptionStatus === status),
         )
         .sort((a, b) =>
           sort === "name"
@@ -508,86 +616,147 @@ export default function AdminScreen() {
         }),
     });
   }
-  function metrics(
-    items: { key: string; name: string; detail?: string }[],
-    source = totals,
-  ) {
-    return (
-      <div className="metric-grid admin-metrics">
-        {items.map((item, index) => (
-          <article className="metric-card" key={item.key}>
-            <div className="metric-topline">
-              <span>{item.name}</span>
-              <span className="metric-index">
-                {String(index + 1).padStart(2, "0")}
-              </span>
-            </div>
-            <strong>
-              <MetricNumber value={source[item.key]} />
-            </strong>
-            <small>{item.detail || "Recorded across the platform"}</small>
-          </article>
-        ))}
-      </div>
-    );
+  function addBusiness() {
+    setDialog({
+      title: "Add a client business",
+      detail:
+        "Creates the client's workspace. You can then create their login and connect their website.",
+      fields: [
+        { name: "name", label: "Business name", required: true },
+        {
+          name: "websiteUrl",
+          label: "Website",
+          type: "url",
+          placeholder: "https://clientbusiness.co.za",
+        },
+      ],
+      submitLabel: "Add business",
+      submit: async (input) => {
+        const result = await api("/api/platform/organizations", "POST", {
+          ...input,
+          timezone: "Africa/Johannesburg",
+        });
+        setNotice("Client business added.");
+        setRevision((value) => value + 1);
+        return result;
+      },
+    });
   }
-  function chart(
-    title: string,
-    description: string,
-    metricsList: { key: string; label: string }[],
-    values = series,
-  ) {
-    return (
-      <div className="surface admin-chart">
-        <TrendChart
-          values={values}
-          title={title}
-          description={description}
-          metrics={metricsList}
-        />
-      </div>
+
+  const attention = useMemo<Attention[]>(() => {
+    const now = Date.now();
+    const items: Attention[] = [];
+    for (const organization of organizations) {
+      if (organization.onboardingStatus === "DEMO") continue;
+      const name = text(organization.name);
+      const subscription = object(organization.subscription);
+      const end = subscription.periodEnd
+        ? new Date(text(subscription.periodEnd)).getTime()
+        : null;
+      const plan = text(subscription.status, "");
+      if (!plan)
+        items.push({
+          tone: "warn",
+          title: `${name} has no plan`,
+          detail: "Assign a plan so research and sending can run.",
+          action: { label: "Assign", onClick: () => subscriptionEditor(organization) },
+        });
+      else if (["SUSPENDED", "EXPIRED", "CANCELLED"].includes(plan))
+        items.push({
+          tone: "bad",
+          title: `${name}: plan ${label(plan).toLowerCase()}`,
+          detail: "Sending and lead research are blocked.",
+          action: { label: "Manage", onClick: () => subscriptionEditor(organization) },
+        });
+      else if (end && end < now)
+        items.push({
+          tone: "bad",
+          title: `${name}: ${plan === "TRIAL" ? "trial" : "plan"} ended ${date(end)}`,
+          detail: "Sending and lead research are blocked until it is renewed.",
+          action: { label: "Renew", onClick: () => subscriptionEditor(organization) },
+        });
+      else if (end && end - now < 7 * DAY)
+        items.push({
+          tone: "warn",
+          title: `${name}: ${plan === "TRIAL" ? "trial" : "plan"} ends ${date(end)}`,
+          detail: `${Math.max(1, Math.ceil((end - now) / DAY))} days left.`,
+          action: { label: "Manage", onClick: () => subscriptionEditor(organization) },
+        });
+    }
+    for (const row of directory)
+      if (
+        row.analysisStatus === "AWAITING_REVIEW" &&
+        row.onboardingStatus !== "DEMO"
+      )
+        items.push({
+          tone: "warn",
+          title: `${text(row.name)}: business profile waiting for approval`,
+          detail: "Lead scoring and campaigns need an approved profile.",
+          action: { label: "Review", href: clientLink(row.workspaceId, "business") },
+        });
+    for (const campaign of campaigns)
+      if (campaign.safetyPauseReason)
+        items.push({
+          tone: "bad",
+          title: `Paused for safety: ${text(campaign.name)}`,
+          detail: `${businessName(campaign.workspaceId)} · ${label(campaign.safetyPauseReason)}`,
+          action: { label: "Open", onClick: () => navigate("outreach") },
+        });
+    if (number(totals.failed) > 0)
+      items.push({
+        tone: "warn",
+        title: `${compact(totals.failed)} automation run${number(totals.failed) === 1 ? "" : "s"} to review`,
+        detail: "Failed or held research and sending jobs.",
+        action: { label: "View", onClick: () => navigate("lead-generation") },
+      });
+    const booked = rows(
+      object(stages.find((stage) => stage.id === "BOOKED")).cards,
     );
-  }
-  function campaignTable(campaigns: RecordValue[]) {
-    return campaigns.length ? (
+    for (const call of booked) {
+      const at = new Date(text(call.bookingAt, "")).getTime();
+      if (at >= now && at < now + 2 * DAY)
+        items.push({
+          tone: "info",
+          title: `Call with ${text(call.company)}`,
+          detail: `${text(call.business)} · ${date(call.bookingAt, true)}`,
+          action: { label: "Pipeline", onClick: () => navigate("pipeline") },
+        });
+    }
+    return items;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data, insights, pipeline]);
+
+  function campaignTable(list: RecordValue[]) {
+    return list.length ? (
       <div className="table-scroll">
-        <table>
+        <table className="adm-table">
           <thead>
             <tr>
               <th>Campaign</th>
-              <th>Client</th>
               <th>Status</th>
-              <th>Audience</th>
-              <th>Emails</th>
+              <th>Sent</th>
               <th>Replies</th>
               <th>Positive</th>
             </tr>
           </thead>
           <tbody>
-            {campaigns.map((campaign) => (
+            {list.map((campaign) => (
               <tr key={text(campaign.id)}>
                 <td>
                   <b>{text(campaign.name)}</b>
                   {!!campaign.safetyPauseReason && (
-                    <small>{label(campaign.safetyPauseReason)}</small>
+                    <small className="adm-text-bad">
+                      {label(campaign.safetyPauseReason)}
+                    </small>
                   )}
-                </td>
-                <td>
-                  <button
-                    className="text-button"
-                    onClick={() => inspect(text(campaign.workspaceId))}
-                  >
-                    {text(
-                      lookup.get(text(campaign.workspaceId))?.name,
-                      "View business",
-                    )}
-                  </button>
                 </td>
                 <td>
                   <Badge value={campaign.status} />
                 </td>
-                <td>{compact(campaign.recipients)}</td>
-                <td>{compact(campaign.sent)}</td>
+                <td>
+                  {compact(campaign.sent)}
+                  <small>of {compact(campaign.recipients)}</small>
+                </td>
                 <td>{compact(campaign.replies)}</td>
                 <td>{compact(campaign.positive)}</td>
               </tr>
@@ -597,23 +766,23 @@ export default function AdminScreen() {
       </div>
     ) : (
       <Empty
-        title="The next campaign starts with a business."
-        detail="Client campaigns and their recorded outcomes will appear here."
+        title="No campaigns yet."
+        detail="Campaigns and their results will appear here."
       />
     );
   }
   function executionTable(jobs: RecordValue[]) {
     return jobs.length ? (
       <div className="table-scroll">
-        <table>
+        <table className="adm-table">
           <thead>
             <tr>
-              <th>Workflow</th>
+              <th>Run</th>
               <th>Client</th>
               <th>Status</th>
               <th>Attempts</th>
-              <th>Created</th>
-              <th>Next / completed</th>
+              <th>Started</th>
+              <th>Next / finished</th>
             </tr>
           </thead>
           <tbody>
@@ -628,10 +797,7 @@ export default function AdminScreen() {
                     className="text-button"
                     onClick={() => inspect(text(job.workspaceId))}
                   >
-                    {text(
-                      lookup.get(text(job.workspaceId))?.name,
-                      "View business",
-                    )}
+                    {businessName(job.workspaceId)}
                   </button>
                 </td>
                 <td>
@@ -650,175 +816,1120 @@ export default function AdminScreen() {
       </div>
     ) : (
       <Empty
-        title="No executions in this date range."
-        detail="Widen the date range to inspect earlier workflow activity."
+        title="No runs in this period."
+        detail="Choose a longer period to see earlier activity."
       />
     );
   }
-  function directoryView() {
+  function clientMenu(row: RecordValue) {
+    const organization = orgById.get(text(row.workspaceId)) ?? row;
+    const id = text(row.workspaceId);
     return (
-      <div className="surface admin-directory">
-        <div className="card-heading">
-          <div>
-            <p className="eyebrow">CONNECTED BUSINESSES</p>
-            <h3>Website directory</h3>
-          </div>
-          <span className="muted">
-            {filtered.length} of {directory.length} businesses
-          </span>
-        </div>
-        <div className="admin-filterbar">
-          <div className="search-field">
-            <Search size={17} />
-            <input
-              aria-label="Search websites"
-              placeholder="Search websites, clients or industries…"
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-            />
-          </div>
-          <select
-            aria-label="Filter websites"
-            value={status}
-            onChange={(event) => setStatus(event.target.value)}
-          >
-            {[
-              "ALL",
-              "CONNECTED",
-              "NOT_CONNECTED",
-              "SUSPENDED",
-              "APPROVED",
-              "AWAITING_REVIEW",
-              "NOT_ANALYZED",
-            ].map((value) => (
-              <option key={value} value={value}>
-                {value === "ALL" ? "All statuses" : label(value)}
-              </option>
-            ))}
-          </select>
-          <select
-            aria-label="Sort websites"
-            value={sort}
-            onChange={(event) => setSort(event.target.value)}
-          >
-            <option value="activity">Recent activity</option>
-            <option value="name">Business name</option>
-            <option value="leads">Most leads</option>
-            <option value="sent">Most emails</option>
-          </select>
-        </div>
-        {filtered.length ? (
-          <div className="table-scroll">
-            <table className="website-table">
-              <thead>
-                <tr>
-                  <th>Website / business</th>
-                  <th>Client account</th>
-                  <th>Connection / analysis</th>
-                  <th>Industry / target market</th>
-                  <th>Discovered / qualified</th>
-                  <th>Emails / replies</th>
-                  <th>Active campaigns</th>
-                  <th>Last activity</th>
-                  <th>
-                    <span className="sr-only">Inspect website</span>
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.map((organization) => (
-                  <tr key={text(organization.workspaceId)}>
-                    <td>
-                      <button
-                        className="directory-name"
-                        onClick={() => inspect(text(organization.workspaceId))}
-                      >
-                        <span className="site-monogram">
-                          {text(organization.name).slice(0, 1)}
-                        </span>
-                        <span>
-                          <b>{text(organization.name)}</b>
-                          <small>
-                            {text(
-                              organization.websiteUrl,
-                              "Website not connected",
-                            )}
-                          </small>
-                        </span>
-                      </button>
-                    </td>
-                    <td>
-                      {text(
-                        organization.accountEmail,
-                        "No client administrator",
-                      )}
-                      <small>
-                        {text(organization.planName, "Unassigned plan")}
-                      </small>
-                    </td>
-                    <td>
-                      <Badge value={organization.connectionStatus} />
-                      <small>
-                        <Badge value={organization.analysisStatus} />
-                      </small>
-                    </td>
-                    <td>
-                      {text(organization.industry, "Not analyzed")}
-                      <small className="truncate-text">
-                        {text(
-                          organization.targetMarket,
-                          "Target market not reviewed",
-                        )}
-                      </small>
-                    </td>
-                    <td>
-                      <b>{compact(organization.discovered)}</b>
-                      <small>{compact(organization.qualified)} qualified</small>
-                    </td>
-                    <td>
-                      <b>{compact(organization.sent)}</b>
-                      <small>{compact(organization.replies)} replies</small>
-                    </td>
-                    <td>{compact(organization.activeCampaigns)}</td>
-                    <td>{date(organization.lastActivity, true)}</td>
-                    <td>
-                      <button
-                        className="icon-button"
-                        aria-label={`Inspect ${text(organization.name)}`}
-                        onClick={() => inspect(text(organization.workspaceId))}
-                      >
-                        <ArrowUpRight size={18} />
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        ) : (
-          <Empty
-            title={
-              directory.length
-                ? "No websites match these filters."
-                : "Your website directory starts here."
-            }
-            detail={
-              directory.length
-                ? "Try another business name, industry or connection status."
-                : "Every connected client website will appear here with real performance data."
-            }
-          />
+      <RowMenu name={text(row.name)}>
+        <button role="menuitem" onClick={() => inspect(id)}>
+          View details
+        </button>
+        <Link role="menuitem" href={clientLink(id, "business")}>
+          Website & targeting
+        </Link>
+        <Link role="menuitem" href={clientLink(id, "settings")}>
+          Edit client
+        </Link>
+        {organization.status === "ACTIVE" &&
+          organization.onboardingStatus !== "DEMO" && (
+            <button
+              role="menuitem"
+              onClick={() => setClientLogin({ workspaceId: id })}
+            >
+              Create login
+            </button>
+          )}
+        <button role="menuitem" onClick={() => subscriptionEditor(organization)}>
+          Change plan
+        </button>
+        <button
+          role="menuitem"
+          className="adm-text-bad"
+          onClick={() => changeAccess(organization)}
+        >
+          {organization.status === "ACTIVE" ? "Suspend" : "Activate"}
+        </button>
+      </RowMenu>
+    );
+  }
+  function planCell(row: RecordValue) {
+    const subscription = object(orgById.get(text(row.workspaceId))?.subscription);
+    const end = subscription.periodEnd
+      ? new Date(text(subscription.periodEnd))
+      : null;
+    const lapsed = end && end.getTime() < Date.now();
+    return (
+      <>
+        <span className="adm-cell-line">
+          {text(
+            object(subscription.plan).name ?? row.planName,
+            "No plan",
+          )}
+          <Badge value={subscription.status || row.subscriptionStatus || "UNASSIGNED"} />
+        </span>
+        {end && (
+          <small className={lapsed ? "adm-text-bad" : undefined}>
+            {lapsed ? "Ended" : "Ends"} {date(end)}
+          </small>
         )}
-        <p className="table-caption">
-          Lifetime business metrics · Directory shows up to{" "}
-          {compact(insights.directoryLimit)} recently registered clients.
-        </p>
+      </>
+    );
+  }
+  function clientIdentity(row: RecordValue, onClick?: () => void) {
+    const website = text(row.websiteUrl, "");
+    return (
+      <div className="adm-client">
+        <span className="site-monogram">{text(row.name).slice(0, 1)}</span>
+        <span>
+          <button className="adm-client-name" onClick={onClick}>
+            {text(row.name)}
+          </button>
+          {website ? (
+            <a
+              href={website}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="adm-client-site"
+            >
+              {website.replace(/^https?:\/\/(www\.)?/, "").replace(/\/$/, "")}
+              <ExternalLink size={11} />
+            </a>
+          ) : (
+            <small>No website yet</small>
+          )}
+        </span>
       </div>
     );
   }
+
+  function renderOverview() {
+    return (
+      <>
+        <Stats>
+          <Stat
+            label="Active clients"
+            value={totals.activeClients}
+            hint={`${compact(totals.clients)} registered`}
+          />
+          <Stat
+            label="Leads found"
+            value={totals.discovered}
+            hint={`${compact(totals.qualified)} qualified`}
+          />
+          <Stat
+            label="Emails sent"
+            value={totals.sent}
+            hint={`${compact(periodSum("sent"))} in the ${rangeLabel}`}
+          />
+          <Stat
+            label="Replies"
+            value={totals.replies}
+            hint={`${percent(totals.replies, totals.sent)} reply rate`}
+          />
+          <Stat
+            label="Positive replies"
+            value={totals.positive}
+            hint={`${percent(totals.positive, totals.replies)} of replies`}
+          />
+          <Stat
+            label="Calls booked"
+            value={pipeline.stages ? stageTotal("BOOKED") : null}
+            hint={`${compact(bookings.nextSevenDays)} in the next 7 days`}
+          />
+        </Stats>
+        <div className="adm-grid adm-grid-main">
+          <Panel className="adm-chart-panel">
+            <TrendChart
+              values={series}
+              title="Activity"
+              description={`Daily totals, ${rangeLabel}.`}
+              metrics={[
+                { key: "sent", label: "Emails sent" },
+                { key: "replies", label: "Replies" },
+                { key: "positive", label: "Positive replies" },
+                { key: "leads", label: "Leads found" },
+                { key: "bounces", label: "Bounces" },
+                { key: "clients", label: "New clients" },
+                { key: "executions", label: "Automation runs" },
+                { key: "usage", label: "Usage units" },
+              ]}
+            />
+          </Panel>
+          <Panel
+            title="Needs attention"
+            detail={
+              attention.length
+                ? `${attention.length} item${attention.length === 1 ? "" : "s"}`
+                : undefined
+            }
+            className="adm-attention-panel"
+          >
+            {attention.length ? (
+              <ul className="adm-attention">
+                {attention.slice(0, 8).map((item, index) => (
+                  <li key={`${item.title}-${index}`} className={`is-${item.tone}`}>
+                    <span className="adm-attention-icon">
+                      {item.tone === "info" ? (
+                        <CalendarClock size={15} />
+                      ) : item.tone === "bad" ? (
+                        <CircleAlert size={15} />
+                      ) : (
+                        <TriangleAlert size={15} />
+                      )}
+                    </span>
+                    <div>
+                      <b>{item.title}</b>
+                      <small>{item.detail}</small>
+                    </div>
+                    {item.action?.href ? (
+                      <Link className="adm-attention-action" href={item.action.href}>
+                        {item.action.label}
+                      </Link>
+                    ) : item.action ? (
+                      <button
+                        className="adm-attention-action"
+                        onClick={item.action.onClick}
+                      >
+                        {item.action.label}
+                      </button>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <div className="adm-all-clear">
+                <Check size={18} />
+                <b>All clear</b>
+                <small>No expired plans, paused campaigns or failed runs.</small>
+              </div>
+            )}
+          </Panel>
+        </div>
+        <div className="adm-grid adm-grid-side">
+          <Panel title="Client journey" detail="Lifetime totals across every client.">
+            <Funnel
+              steps={[
+                { label: "Leads found", value: totals.discovered },
+                { label: "Qualified", value: totals.qualified },
+                { label: "Emails sent", value: totals.sent, rate: null },
+                {
+                  label: "Replies",
+                  value: totals.replies,
+                  rate: `${percent(totals.replies, totals.sent)} reply rate`,
+                },
+                { label: "Positive replies", value: totals.positive },
+                { label: "Calls booked", value: stageTotal("BOOKED") },
+                { label: "Won", value: stageTotal("WON") },
+              ]}
+            />
+          </Panel>
+          <Panel
+            title="Clients"
+            detail="Most recently active."
+            action={
+              <button className="text-button" onClick={() => navigate("clients")}>
+                All clients <ChevronRight size={15} />
+              </button>
+            }
+          >
+            {directory.length ? (
+              <div className="table-scroll">
+                <table className="adm-table adm-clients-table">
+                  <thead>
+                    <tr>
+                      <th>Client</th>
+                      <th>Plan</th>
+                      <th>Leads</th>
+                      <th>Replies</th>
+                      <th>Last active</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {[...directory]
+                      .sort(
+                        (a, b) =>
+                          new Date(text(b.lastActivity)).getTime() -
+                          new Date(text(a.lastActivity)).getTime(),
+                      )
+                      .slice(0, 6)
+                      .map((row) => (
+                        <tr key={text(row.workspaceId)}>
+                          <td>
+                            {clientIdentity(row, () => inspect(text(row.workspaceId)))}
+                          </td>
+                          <td>{planCell(row)}</td>
+                          <td>{compact(row.discovered)}</td>
+                          <td>
+                            {compact(row.replies)}
+                            <small>
+                              {percent(row.replies, row.sent)} of{" "}
+                              {compact(row.sent)} sent
+                            </small>
+                          </td>
+                          <td>{date(row.lastActivity)}</td>
+                        </tr>
+                      ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <Empty
+                title="No clients yet."
+                detail="Add a client business to get started."
+                action={
+                  <button className="primary" onClick={addBusiness}>
+                    <Plus size={16} /> Add business
+                  </button>
+                }
+              />
+            )}
+          </Panel>
+        </div>
+        <Panel
+          id="plans"
+          title="Plans and billing"
+          detail="Subscription plans, plus what clients used in the selected period."
+          action={
+            <button className="primary" onClick={() => planEditor()}>
+              <Plus size={16} />
+              Create plan
+            </button>
+          }
+        >
+          <div className="adm-plans-layout">
+            <div className="adm-plans">
+              {plans.map((plan) => {
+                const subscribed = organizations.filter(
+                  (item) => object(item.subscription).planId === plan.id,
+                ).length;
+                return (
+                  <article className="adm-plan" key={text(plan.id)}>
+                    <header>
+                      <h3>{text(plan.name)}</h3>
+                      <Badge value={plan.available ? "AVAILABLE" : "PRIVATE"} />
+                    </header>
+                    <p className="adm-plan-price">
+                      {plan.priceMinor === null
+                        ? "Arranged pricing"
+                        : `${text(plan.currency)} ${(number(plan.priceMinor) / 100).toLocaleString("en-ZA", { minimumFractionDigits: 0 })}`}
+                      {plan.priceMinor !== null && <small> / month</small>}
+                    </p>
+                    <dl>
+                      <div>
+                        <dt>Emails a day</dt>
+                        <dd>{compact(plan.dailyEmails)}</dd>
+                      </div>
+                      <div>
+                        <dt>Leads a month</dt>
+                        <dd>{compact(plan.monthlyProspects)}</dd>
+                      </div>
+                      <div>
+                        <dt>Clients on plan</dt>
+                        <dd>{compact(subscribed)}</dd>
+                      </div>
+                    </dl>
+                    <button className="text-button" onClick={() => planEditor(plan)}>
+                      Edit plan <ChevronRight size={14} />
+                    </button>
+                  </article>
+                );
+              })}
+              {!plans.length && (
+                <Empty
+                  title="No plans yet."
+                  detail="Create a plan, then assign it to a client."
+                />
+              )}
+            </div>
+            <div className="adm-usage">
+              <h3>Usage, {rangeLabel}</h3>
+              {rows(insights.usage).length ? (
+                <Funnel
+                  showRates={false}
+                  steps={rows(insights.usage).map((item) => ({
+                    label: label(item.kind),
+                    value: item.quantity,
+                  }))}
+                />
+              ) : (
+                <p className="muted">No usage recorded in this period.</p>
+              )}
+            </div>
+          </div>
+        </Panel>
+      </>
+    );
+  }
+
+  function renderClients() {
+    return (
+      <>
+        <Stats>
+          <Stat
+            label="Clients"
+            value={totals.clients}
+            hint={`${compact(totals.activeClients)} active`}
+          />
+          <Stat
+            label="Websites connected"
+            value={totals.websites}
+            hint={`${compact(directory.filter((row) => row.analysisStatus === "APPROVED").length)} profiles approved`}
+          />
+          <Stat
+            label="Client logins"
+            value={organizations.reduce(
+              (sum, item) => sum + rows(item.clientLogins).length,
+              0,
+            )}
+            hint="People who can sign in"
+          />
+          <Stat
+            label="Plans to fix"
+            value={
+              attention.filter(
+                (item) => item.tone !== "info" && /plan|trial/.test(item.title),
+              ).length
+            }
+            tone={
+              attention.some(
+                (item) => item.tone === "bad" && /plan|trial/.test(item.title),
+              )
+                ? "bad"
+                : undefined
+            }
+            hint="Ended, ending soon or missing"
+          />
+        </Stats>
+        <Panel>
+          <div className="adm-toolbar">
+            <div className="search-field">
+              <Search size={16} />
+              <input
+                aria-label="Search clients"
+                placeholder="Search clients, websites or industries…"
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+              />
+            </div>
+            <select
+              aria-label="Filter clients"
+              value={status}
+              onChange={(event) => setStatus(event.target.value)}
+            >
+              <option value="ALL">All clients</option>
+              <option value="CONNECTED">Website connected</option>
+              <option value="NOT_CONNECTED">No website</option>
+              <option value="AWAITING_REVIEW">Profile waiting for approval</option>
+              <option value="APPROVED">Profile approved</option>
+              <option value="TRIAL">On trial</option>
+              <option value="SUSPENDED">Suspended</option>
+            </select>
+            <select
+              aria-label="Sort clients"
+              value={sort}
+              onChange={(event) => setSort(event.target.value)}
+            >
+              <option value="activity">Recently active</option>
+              <option value="name">Name</option>
+              <option value="leads">Most leads</option>
+              <option value="sent">Most emails</option>
+            </select>
+            <span className="muted adm-toolbar-count">
+              {filtered.length} of {directory.length}
+            </span>
+          </div>
+          {filtered.length ? (
+            <div className="table-scroll">
+              <table className="adm-table adm-clients-table">
+                <thead>
+                  <tr>
+                    <th>Client and website</th>
+                    <th>Setup</th>
+                    <th>Plan</th>
+                    <th>Leads</th>
+                    <th>Outreach</th>
+                    <th>Last active</th>
+                    <th>
+                      <span className="sr-only">Actions</span>
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filtered.map((row) => {
+                    const organization = orgById.get(text(row.workspaceId));
+                    const logins = rows(organization?.clientLogins);
+                    const progress = object(setup[text(row.workspaceId)]);
+                    const complete =
+                      number(progress.total) > 0 &&
+                      number(progress.done) >= number(progress.total);
+                    return (
+                      <tr key={text(row.workspaceId)}>
+                        <td>
+                          {clientIdentity(row, () => inspect(text(row.workspaceId)))}
+                          <small className="truncate-text">
+                            {(organization?.status ?? row.status) !== "ACTIVE"
+                              ? `${label(organization?.status ?? row.status)} · `
+                              : ""}
+                            {logins.length
+                              ? `${logins.length} login${logins.length === 1 ? "" : "s"}`
+                              : "No client login yet"}
+                          </small>
+                        </td>
+                        <td>
+                          {progress.total ? (
+                            <>
+                              <span className="adm-rate">
+                                <Progress value={progress.done} max={progress.total} />
+                                {compact(progress.done)} of {compact(progress.total)}
+                              </span>
+                              <small>
+                                {complete ? (
+                                  "Sending"
+                                ) : (
+                                  <Link href={clientLink(row.workspaceId, "outreach")}>
+                                    Next: {text(progress.next)}
+                                  </Link>
+                                )}
+                              </small>
+                            </>
+                          ) : (
+                            "—"
+                          )}
+                        </td>
+                        <td>{planCell(row)}</td>
+                        <td>
+                          {compact(row.discovered)}
+                          <small>{compact(row.qualified)} qualified</small>
+                        </td>
+                        <td>
+                          {compact(row.sent)} sent
+                          <small>
+                            {compact(row.replies)} replies ·{" "}
+                            {compact(row.activeCampaigns)} running
+                          </small>
+                        </td>
+                        <td>{date(row.lastActivity)}</td>
+                        <td>
+                          <div className="adm-row-actions">
+                            <Link
+                              className={`button${complete ? "" : " primary"}`}
+                              href={clientLink(row.workspaceId, "outreach")}
+                            >
+                              {complete ? "Open" : "Continue setup"}{" "}
+                              <ArrowUpRight size={14} />
+                            </Link>
+                            {clientMenu(row)}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <Empty
+              title={
+                directory.length ? "No clients match." : "No clients yet."
+              }
+              detail={
+                directory.length
+                  ? "Try another name or filter."
+                  : "Add a client business to get started."
+              }
+            />
+          )}
+        </Panel>
+      </>
+    );
+  }
+
+  function renderLeadGeneration() {
+    const rank = ["HOT", "WARM", "COLD"];
+    const categories = rows(insights.leadCategories).sort(
+      (a, b) =>
+        (rank.indexOf(text(a.category)) + 1 || 99) -
+        (rank.indexOf(text(b.category)) + 1 || 99),
+    );
+    return (
+      <>
+        <Stats>
+          <Stat
+            label="Leads found"
+            value={totals.discovered}
+            hint={`${compact(periodSum("leads"))} in the ${rangeLabel}`}
+          />
+          <Stat
+            label="Qualified"
+            value={totals.qualified}
+            hint={`${percent(totals.qualified, totals.discovered)} of leads found`}
+          />
+          <Stat
+            label="Automation runs"
+            value={totals.executions}
+            hint={`${compact(totals.pending)} queued or running`}
+          />
+          <Stat
+            label="Runs to review"
+            value={totals.failed}
+            tone={number(totals.failed) > 0 ? "warn" : undefined}
+            hint="Failed or held"
+          />
+        </Stats>
+        <div className="adm-grid adm-grid-main">
+          <Panel className="adm-chart-panel">
+            <TrendChart
+              values={series}
+              title="Leads found"
+              description={`New businesses added to client lead lists, ${rangeLabel}.`}
+              metrics={[
+                { key: "leads", label: "Leads found" },
+                { key: "executions", label: "Automation runs" },
+                { key: "failed", label: "Runs to review" },
+              ]}
+            />
+          </Panel>
+          <Panel title="Lead quality" detail="Score against each client's criteria.">
+            {categories.length ? (
+              <Funnel
+                showRates={false}
+                steps={categories.map((item) => ({
+                  label: label(item.category),
+                  value: item.count,
+                }))}
+              />
+            ) : (
+              <p className="muted">Scores appear once leads are researched.</p>
+            )}
+          </Panel>
+        </div>
+        <Panel
+          title="Leads by client"
+          detail="Open a client to find more leads or work their list."
+        >
+          {directory.length ? (
+            <div className="table-scroll">
+              <table className="adm-table">
+                <thead>
+                  <tr>
+                    <th>Client</th>
+                    <th>Leads found</th>
+                    <th>Qualified</th>
+                    <th>Qualified rate</th>
+                    <th>Runs to review</th>
+                    <th>
+                      <span className="sr-only">Actions</span>
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {[...directory]
+                    .sort((a, b) => number(b.discovered) - number(a.discovered))
+                    .map((row) => (
+                      <tr key={text(row.workspaceId)}>
+                        <td>{clientIdentity(row, () => inspect(text(row.workspaceId)))}</td>
+                        <td>{compact(row.discovered)}</td>
+                        <td>{compact(row.qualified)}</td>
+                        <td>
+                          <span className="adm-rate">
+                            <Progress value={row.qualified} max={row.discovered} />
+                            {percent(row.qualified, row.discovered)}
+                          </span>
+                        </td>
+                        <td>
+                          {number(row.failedJobs) ? (
+                            <span className="adm-text-warn">{compact(row.failedJobs)}</span>
+                          ) : (
+                            "—"
+                          )}
+                        </td>
+                        <td>
+                          <div className="adm-row-actions">
+                            <Link className="button" href={clientLink(row.workspaceId, "discovery")}>
+                              Find leads
+                            </Link>
+                            <Link className="button" href={clientLink(row.workspaceId, "leads")}>
+                              Lead list
+                            </Link>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <Empty title="No clients yet." detail="Add a client business to start finding leads." />
+          )}
+        </Panel>
+        <CallCentre view="sources" />
+        <Panel
+          title="Automation runs"
+          detail={
+            <>
+              <span
+                className={`connection-indicator ${configuration.n8n ? "ready" : ""}`}
+              />{" "}
+              {configuration.n8n
+                ? "n8n is connected. These are the research and sending jobs it ran."
+                : "n8n is not connected, so queued jobs wait until it is."}
+            </>
+          }
+          action={
+            <select
+              aria-label="Filter runs by status"
+              value={jobStatus}
+              onChange={(event) => setJobStatus(event.target.value)}
+            >
+              {jobStatuses.map((value) => (
+                <option key={value} value={value}>
+                  {value === "ALL" ? "All statuses" : label(value)}
+                </option>
+              ))}
+            </select>
+          }
+        >
+          {executionTable(
+            rows(insights.jobs).filter(
+              (job) => jobStatus === "ALL" || job.status === jobStatus,
+            ),
+          )}
+        </Panel>
+      </>
+    );
+  }
+
+  function renderCampaigns() {
+    const visible = campaigns.filter(
+      (campaign) =>
+        (campaignStatus === "ALL" || campaign.status === campaignStatus) &&
+        (campaignClient === "ALL" || campaign.workspaceId === campaignClient) &&
+        text(campaign.name, "")
+          .toLowerCase()
+          .includes(campaignSearch.trim().toLowerCase()),
+    );
+    const groups = new Map<string, RecordValue[]>();
+    for (const campaign of visible) {
+      const key = text(campaign.workspaceId);
+      groups.set(key, [...(groups.get(key) ?? []), campaign]);
+    }
+    const bounceRate =
+      number(totals.sent) > 0 ? number(totals.bounces) / number(totals.sent) : 0;
+    return (
+      <>
+        <Stats>
+          <Stat
+            label="Emails sent"
+            value={totals.sent}
+            hint={`${compact(periodSum("sent"))} in the ${rangeLabel}`}
+          />
+          <Stat
+            label="Reply rate"
+            value={percent(totals.replies, totals.sent)}
+            hint={`${compact(totals.replies)} replies`}
+          />
+          <Stat
+            label="Positive replies"
+            value={totals.positive}
+            hint={`${percent(totals.positive, totals.replies)} of replies`}
+          />
+          <Stat
+            label="Bounce rate"
+            value={percent(totals.bounces, totals.sent)}
+            tone={bounceRate > 0.03 ? "bad" : bounceRate > 0.02 ? "warn" : undefined}
+            hint={`${compact(totals.bounces)} hard bounces · pause at 3%`}
+          />
+          <Stat
+            label="Running campaigns"
+            value={totals.activeCampaigns}
+            hint={`${compact(totals.campaigns)} campaigns in total`}
+          />
+        </Stats>
+        <Panel>
+          <div className="adm-toolbar">
+            <div className="search-field">
+              <Search size={16} />
+              <input
+                aria-label="Search campaigns"
+                placeholder="Search campaigns…"
+                value={campaignSearch}
+                onChange={(event) => setCampaignSearch(event.target.value)}
+              />
+            </div>
+            <select
+              aria-label="Show one client's campaigns"
+              value={campaignClient}
+              onChange={(event) => setCampaignClient(event.target.value)}
+            >
+              <option value="ALL">All clients</option>
+              {organizations.map((item) => (
+                <option key={text(item.workspaceId)} value={text(item.workspaceId)}>
+                  {text(item.name)}
+                </option>
+              ))}
+            </select>
+            <select
+              aria-label="Filter campaigns by status"
+              value={campaignStatus}
+              onChange={(event) => setCampaignStatus(event.target.value)}
+            >
+              {campaignStatuses.map((value) => (
+                <option key={value} value={value}>
+                  {value === "ALL" ? "All statuses" : label(value)}
+                </option>
+              ))}
+            </select>
+          </div>
+          {visible.length ? (
+            <div className="table-scroll">
+              <table className="adm-table adm-campaign-table">
+                <thead>
+                  <tr>
+                    <th>Campaign</th>
+                    <th>Status</th>
+                    <th>Progress</th>
+                    <th>Sent</th>
+                    <th>Replies</th>
+                    <th>Positive</th>
+                    <th>
+                      <span className="sr-only">Open</span>
+                    </th>
+                  </tr>
+                </thead>
+                {[...groups.entries()].map(([workspaceId, list]) => (
+                  <tbody key={workspaceId}>
+                    <tr className="adm-group-row">
+                      <th colSpan={7}>
+                        <span>{businessName(workspaceId)}</span>
+                        <small>
+                          {list.length} campaign{list.length === 1 ? "" : "s"} ·{" "}
+                          {list.filter((item) => item.status === "RUNNING").length} running
+                        </small>
+                        <Link href={clientLink(workspaceId, "campaigns")}>
+                          Open campaigns <ArrowUpRight size={13} />
+                        </Link>
+                      </th>
+                    </tr>
+                    {list.map((campaign) => (
+                      <tr key={text(campaign.id)}>
+                        <td>
+                          <b>{text(campaign.name)}</b>
+                          {campaign.safetyPauseReason ? (
+                            <small className="adm-text-bad">
+                              Paused: {label(campaign.safetyPauseReason)}
+                            </small>
+                          ) : (
+                            <small>Updated {date(campaign.updatedAt)}</small>
+                          )}
+                        </td>
+                        <td>
+                          <Badge value={campaign.status} />
+                        </td>
+                        <td>
+                          <span className="adm-rate">
+                            <Progress value={campaign.sent} max={campaign.recipients} />
+                            {compact(campaign.sent)} / {compact(campaign.recipients)}
+                          </span>
+                        </td>
+                        <td>{compact(campaign.sent)}</td>
+                        <td>
+                          {compact(campaign.replies)}
+                          <small>{percent(campaign.replies, campaign.sent)}</small>
+                        </td>
+                        <td>{compact(campaign.positive)}</td>
+                        <td>
+                          <Link
+                            className="icon-button"
+                            aria-label={`Open ${text(campaign.name)}`}
+                            href={clientLink(workspaceId, "campaigns")}
+                          >
+                            <ArrowUpRight size={16} />
+                          </Link>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                ))}
+              </table>
+            </div>
+          ) : (
+            <Empty
+              title={campaigns.length ? "No campaigns match." : "No campaigns yet."}
+              detail={
+                campaigns.length
+                  ? "Try another client, status or search."
+                  : "Create a campaign in a client's workspace and it will show here."
+              }
+            />
+          )}
+          <p className="table-caption">
+            Sent means the email provider accepted the message. Up to 100 recently
+            updated campaigns.
+          </p>
+        </Panel>
+      </>
+    );
+  }
+  function renderInbox() {
+    return (
+      <>
+        <Stats>
+          <Stat
+            label="Replies"
+            value={totals.replies}
+            hint={`${compact(periodSum("replies"))} in the ${rangeLabel}`}
+          />
+          <Stat
+            label="Positive replies"
+            value={totals.positive}
+            hint={`${percent(totals.positive, totals.replies)} of replies`}
+          />
+          <Stat
+            label="Meeting requests"
+            value={totals.meetings}
+            hint="Asked for a call in their reply"
+          />
+          <Stat
+            label="Reply rate"
+            value={percent(totals.replies, totals.sent)}
+            hint={`${compact(totals.sent)} emails sent`}
+          />
+        </Stats>
+        <div className="adm-grid adm-grid-main">
+          <Panel className="adm-chart-panel">
+            <TrendChart
+              values={series}
+              title="Replies"
+              description={`Replies arriving in client inboxes, ${rangeLabel}.`}
+              metrics={[
+                { key: "replies", label: "Replies" },
+                { key: "positive", label: "Positive replies" },
+              ]}
+            />
+          </Panel>
+          <Panel title="Where replies go" detail="Each client's replies stay in their own inbox.">
+            <p className="muted adm-panel-copy">
+              Open a client&apos;s inbox to read and answer replies. Positive replies
+              and meeting requests also move the lead into the sales pipeline.
+            </p>
+            <button className="text-button" onClick={() => navigate("pipeline")}>
+              Open sales pipeline <ChevronRight size={15} />
+            </button>
+          </Panel>
+        </div>
+        <Panel title="Replies by client">
+          {directory.length ? (
+            <div className="table-scroll">
+              <table className="adm-table">
+                <thead>
+                  <tr>
+                    <th>Client</th>
+                    <th>Sent</th>
+                    <th>Replies</th>
+                    <th>Reply rate</th>
+                    <th>Positive</th>
+                    <th>
+                      <span className="sr-only">Open inbox</span>
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {[...directory]
+                    .sort((a, b) => number(b.replies) - number(a.replies))
+                    .map((row) => (
+                      <tr key={text(row.workspaceId)}>
+                        <td>{clientIdentity(row, () => inspect(text(row.workspaceId)))}</td>
+                        <td>{compact(row.sent)}</td>
+                        <td>{compact(row.replies)}</td>
+                        <td>{percent(row.replies, row.sent)}</td>
+                        <td>{compact(row.positive)}</td>
+                        <td>
+                          <Link className="button" href={clientLink(row.workspaceId, "inbox")}>
+                            Open inbox <ArrowUpRight size={14} />
+                          </Link>
+                        </td>
+                      </tr>
+                    ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <Empty title="No replies yet." detail="Replies appear once campaigns are sending." />
+          )}
+        </Panel>
+      </>
+    );
+  }
+  function renderAccounts() {
+    const mailboxes = rows(insights.mailboxStatuses);
+    return (
+      <>
+        <Stats>
+          <Stat label="Emails sent" value={totals.sent} hint="Accepted by the email provider" />
+          <Stat
+            label="Confirmed deliveries"
+            value={totals.delivered}
+            hint="Only where the provider reports delivery"
+          />
+          <Stat
+            label="Hard bounces"
+            value={totals.bounces}
+            tone={number(totals.sent) && number(totals.bounces) / number(totals.sent) > 0.03 ? "bad" : undefined}
+            hint={`${percent(totals.bounces, totals.sent)} of sent`}
+          />
+          <Stat
+            label="Spam complaints"
+            value={totals.complaints}
+            tone={number(totals.complaints) > 0 ? "bad" : undefined}
+            hint="Pause the inbox on any complaint"
+          />
+        </Stats>
+        <div className="adm-grid adm-grid-main">
+          <Panel className="adm-chart-panel">
+            <TrendChart
+              values={series}
+              title="Sending health"
+              description={`Sent, delivered and bounced, ${rangeLabel}.`}
+              metrics={[
+                { key: "sent", label: "Sent" },
+                { key: "delivered", label: "Delivered" },
+                { key: "bounces", label: "Bounced" },
+              ]}
+            />
+          </Panel>
+          <Panel title="Sending inboxes" detail="Every connected client mailbox.">
+            {mailboxes.length ? (
+              <ul className="adm-status-list">
+                {mailboxes.map((item) => (
+                  <li key={text(item.status)}>
+                    <Badge value={item.status} />
+                    <b>{compact(item.count)}</b>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="muted adm-panel-copy">
+                No inboxes connected yet. Each client connects their own sending
+                inbox from Email Connections.
+              </p>
+            )}
+            <p className="table-caption">
+              Gmail confirms an email was accepted, not that it reached the
+              inbox, and gives no open tracking.
+            </p>
+          </Panel>
+        </div>
+      </>
+    );
+  }
+  function renderOutreach() {
+    return (
+      <>
+        <Tabs
+          label="Email outreach sections"
+          value={outreachTab}
+          onChange={setOutreachTab}
+          items={[
+            { id: "campaigns", label: "Campaigns", count: campaigns.length },
+            { id: "inbox", label: "Inbox", count: number(totals.replies) },
+            { id: "accounts", label: "Sending accounts" },
+          ]}
+        />
+        {outreachTab === "campaigns" && renderCampaigns()}
+        {outreachTab === "inbox" && renderInbox()}
+        {outreachTab === "accounts" && renderAccounts()}
+      </>
+    );
+  }
+
+  function renderSettings() {
+    return (
+      <>
+        <div className="adm-config-grid">
+          {[
+            {
+              key: "google",
+              name: "Google sign-in",
+              detail: "Lets a client connect their own Gmail or Google Workspace inbox.",
+            },
+            {
+              key: "microsoft",
+              name: "Microsoft 365 sign-in",
+              detail: "Lets a client connect their own Outlook or Microsoft 365 inbox.",
+            },
+            {
+              key: "liveEmail",
+              name: "Live email sending",
+              detail: "Server permission for real sending. Each client inbox is switched on separately.",
+            },
+            {
+              key: "n8n",
+              name: "n8n automation",
+              detail: "The workflow engine that runs research and sending jobs.",
+            },
+            {
+              key: "encryption",
+              name: "Credential encryption",
+              detail: "Key that protects stored provider passwords and tokens.",
+            },
+            {
+              key: "tenantDatabase",
+              name: "Client data separation",
+              detail: "Restricted database login that keeps each client's data apart.",
+            },
+          ].map((item) => (
+            <article className="adm-config-card" key={item.key}>
+              <span className={`connection-indicator ${configuration[item.key] ? "ready" : ""}`} />
+              <div>
+                <h3>{item.name}</h3>
+                <p>{item.detail}</p>
+              </div>
+              <Badge value={configuration[item.key] ? "CONFIGURED" : "NOT_CONFIGURED"} />
+            </article>
+          ))}
+        </div>
+        <Panel title="Shortcuts">
+          <div className="adm-shortcuts">
+            <button onClick={() => navigate("clients")}>
+              <Users size={17} />
+              Manage clients
+              <ChevronRight size={15} />
+            </button>
+            <button onClick={() => navigate("subscriptions")}>
+              <CreditCard size={17} />
+              Plans and billing
+              <ChevronRight size={15} />
+            </button>
+            <Link href="/account" className="button">
+              <ShieldCheck size={17} />
+              Your account
+              <ChevronRight size={15} />
+            </Link>
+          </div>
+          <p className="table-caption">
+            Provider keys live on the server. This page shows whether each one is
+            set, not whether the provider is working right now.
+          </p>
+        </Panel>
+      </>
+    );
+  }
+
+  const active = navigation.find((item) => item.id === tab)!;
   const inspected = rows(detail?.directory)[0];
+  const navCount = (id: SectionId) =>
+    id === "lead-generation" && number(totals.failed) > 0 ? (
+      <span className="nav-count is-warn">{compact(totals.failed)}</span>
+    ) : id === "pipeline" && number(bookings.nextSevenDays) > 0 ? (
+      <span className="nav-count">{compact(bookings.nextSevenDays)}</span>
+    ) : null;
   return (
-    <div className={`app-shell admin-shell ${mobile ? "nav-open" : ""}`}>
+    <div className={`app-shell admin-shell adm-v2 ${mobile ? "nav-open" : ""}`}>
       <a className="skip-link" href="#main-content">
         Skip to content
       </a>
@@ -846,24 +1957,28 @@ export default function AdminScreen() {
           </button>
         </div>
         <div className="admin-scope">
-          <ShieldCheck size={16} />
-          <span>PLATFORM ADMINISTRATION</span>
+          <ShieldCheck size={15} />
+          <span>Agency admin</span>
         </div>
-        <nav>
-          <p className="nav-label">COMMAND & CONTROL</p>
-          {navigation.map(({ id, label: title, icon: Icon }) => (
-            <button
-              key={id}
-              className={`nav-item ${tab === id ? "active" : ""}`}
-              aria-current={tab === id ? "page" : undefined}
-              onClick={() => navigate(id)}
-            >
-              <Icon size={18} />
-              <span>{title}</span>
-              {id === "automation" && number(totals.failed) > 0 && (
-                <span className="nav-count">{compact(totals.failed)}</span>
-              )}
-            </button>
+        <nav aria-label="Admin sections">
+          {(["", "GROW", "MANAGE"] as const).map((group) => (
+            <div className="adm-nav-group" key={group || "main"}>
+              {group && <p className="nav-label">{group}</p>}
+              {navigation
+                .filter((item) => item.group === group)
+                .map(({ id, label: title, icon: Icon }) => (
+                  <button
+                    key={id}
+                    className={`nav-item ${tab === id ? "active" : ""}`}
+                    aria-current={tab === id ? "page" : undefined}
+                    onClick={() => navigate(id)}
+                  >
+                    <Icon size={18} />
+                    <span>{title}</span>
+                    {navCount(id)}
+                  </button>
+                ))}
+            </div>
           ))}
         </nav>
         <div className="sidebar-bottom">
@@ -891,17 +2006,13 @@ export default function AdminScreen() {
             >
               <Menu size={21} />
             </button>
-            <span>Platform</span>
+            <span>Admin</span>
             <span className="breadcrumb-divider">/</span>
             <b>{active.label}</b>
           </div>
           <div className="topbar-actions">
-            <span className="admin-recorded">
-              <span />
-              Recorded platform data
-            </span>
             <ThemeToggle compact />
-            <AdminBookingBell openMeetings={() => navigate("call-centre")} />
+            <AdminBookingBell openMeetings={() => navigate("pipeline")} />
             <button
               className="icon-button"
               aria-label="Refresh platform data"
@@ -914,19 +2025,19 @@ export default function AdminScreen() {
           </div>
         </header>
         <main className="page-content admin-content" id="main-content">
-          {!["assistant", "call-centre"].includes(tab) && (
-            <>
-              <SectionHeading
-                eyebrow="THE PLATFORM PERSPECTIVE"
-                title={active.label}
-                detail={active.detail}
-                action={
-                  <div className="admin-period">
-                    <span className="muted">Chart period</span>
+          {tab !== "assistant" && (
+            <div className="adm-head">
+              <div>
+                <h1>{active.label}</h1>
+                <p>{active.detail}</p>
+              </div>
+              <div className="adm-head-actions">
+                {periodic.includes(tab) && (
+                  <div className="adm-period" role="group" aria-label="Reporting period">
                     {["7", "30", "90"].map((value) => (
                       <button
                         key={value}
-                        className={!range && days === value ? "selected" : ""}
+                        className={!range && days === value ? "is-on" : ""}
                         aria-pressed={!range && days === value}
                         onClick={() => {
                           setDays(value);
@@ -936,49 +2047,74 @@ export default function AdminScreen() {
                         {value} days
                       </button>
                     ))}
+                    <details className="adm-range">
+                      <summary className={range ? "is-on" : ""}>
+                        {range ? rangeLabel : "Custom"}
+                      </summary>
+                      <form
+                        onSubmit={(event) => {
+                          event.preventDefault();
+                          if (from && to) {
+                            setRange(
+                              `from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
+                            );
+                            (event.currentTarget.closest("details") as HTMLDetailsElement | null)?.removeAttribute("open");
+                          }
+                        }}
+                      >
+                        <label>
+                          From
+                          <input
+                            type="date"
+                            value={from}
+                            required
+                            onChange={(event) => setFrom(event.target.value)}
+                          />
+                        </label>
+                        <label>
+                          To
+                          <input
+                            type="date"
+                            value={to}
+                            min={from || undefined}
+                            required
+                            onChange={(event) => setTo(event.target.value)}
+                          />
+                        </label>
+                        <button type="submit" className="primary">
+                          Apply
+                        </button>
+                      </form>
+                    </details>
                   </div>
-                }
-              />
-              <div className="admin-datebar">
-                <form
-                  onSubmit={(event) => {
-                    event.preventDefault();
-                    if (from && to) {
-                      setRange(
-                        `from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
-                      );
-                    }
-                  }}
-                >
-                  <label>
-                    From
-                    <input
-                      type="date"
-                      aria-label="Start date"
-                      value={from}
-                      required
-                      onChange={(event) => setFrom(event.target.value)}
-                    />
-                  </label>
-                  <label>
-                    To
-                    <input
-                      type="date"
-                      aria-label="End date"
-                      value={to}
-                      min={from || undefined}
-                      required
-                      onChange={(event) => setTo(event.target.value)}
-                    />
-                  </label>
-                  <button type="submit">Apply range</button>
-                </form>
-                <span>
-                  Charts: {text(object(insights.range).from, "—")} —{" "}
-                  {text(object(insights.range).to, "—")} · SAST
-                </span>
+                )}
+                {tab === "overview" && (
+                  <button className="primary" onClick={() => setClientLogin({})}>
+                    <KeyRound size={16} />
+                    Add client
+                  </button>
+                )}
+                {tab === "clients" && (
+                  <>
+                    <button onClick={addBusiness}>
+                      <Plus size={16} />
+                      Add business
+                    </button>
+                    <button className="primary" onClick={() => setClientLogin({})}>
+                      <KeyRound size={16} />
+                      Add client
+                    </button>
+                  </>
+                )}
+                {tab === "lead-generation" && workspaceTools("discovery", "Find leads")}
+                {tab === "outreach" &&
+                  (outreachTab === "accounts"
+                    ? workspaceTools("mailboxes", "Manage inboxes")
+                    : outreachTab === "inbox"
+                      ? workspaceTools("inbox", "Open inbox")
+                      : workspaceTools("campaigns", "New campaign"))}
               </div>
-            </>
+            </div>
           )}
           {error && (
             <div className="alert error" role="alert">
@@ -1010,843 +2146,19 @@ export default function AdminScreen() {
                   onCreateClient={() => setClientLogin({})}
                 />
               )}
-              {tab === "call-centre" && <CallCentre />}
-              {tab === "command" && (
-                <>
-                  <div className="admin-intro">
-                    <div>
-                      <p className="eyebrow">BUSINESS, IN FULL VIEW</p>
-                      <h2>
-                        Your platform.
-                        <br />
-                        <span>Every possibility.</span>
-                      </h2>
-                      <p>
-                        A precise perspective on the clients, conversations and
-                        opportunities moving through MONETTIC.
-                      </p>
-                    </div>
-                    <div className="admin-intro-stat">
-                      <span>Connected business websites</span>
-                      <strong>
-                        <MetricNumber value={totals.websites} />
-                      </strong>
-                      <button
-                        className="text-button"
-                        onClick={() => navigate("websites")}
-                      >
-                        Open website directory <ArrowUpRight size={16} />
-                      </button>
-                    </div>
-                  </div>
-                  {metrics([
-                    { key: "clients", name: "Registered clients" },
-                    { key: "activeClients", name: "Active clients" },
-                    {
-                      key: "sent",
-                      name: "Outreach emails",
-                      detail: "Accepted by the sending provider",
-                    },
-                    { key: "qualified", name: "Qualified leads" },
-                    { key: "positive", name: "Positive replies" },
-                    { key: "activeCampaigns", name: "Active campaigns" },
-                    { key: "executions", name: "Automation executions" },
-                    { key: "failed", name: "Executions to review" },
-                  ])}
-                  <div className="admin-analytics-grid">
-                    {chart(
-                      "Conversations in motion",
-                      "Accepted emails and prospect responses in the selected period.",
-                      [
-                        { key: "sent", label: "Emails sent" },
-                        ...positiveMetrics,
-                      ],
-                    )}
-                    <div className="surface admin-signal">
-                      <div className="card-heading">
-                        <div>
-                          <p className="eyebrow">OPERATIONS SIGNAL</p>
-                          <h3>At a glance</h3>
-                        </div>
-                        <Activity size={19} />
-                      </div>
-                      {[
-                        {
-                          name: "Active campaigns",
-                          value: totals.activeCampaigns,
-                          id: "campaigns",
-                        },
-                        {
-                          name: "Workflow queue",
-                          value: totals.pending,
-                          id: "automation",
-                        },
-                        {
-                          name: "Recorded usage units",
-                          value: totals.usage,
-                          id: "analytics",
-                        },
-                        {
-                          name: "Workflows to review",
-                          value: totals.failed,
-                          id: "automation",
-                        },
-                      ].map((item) => (
-                        <button
-                          className="admin-signal-row"
-                          key={item.name}
-                          onClick={() => navigate(item.id)}
-                        >
-                          <span>{item.name}</span>
-                          <b>{compact(item.value)}</b>
-                          <ChevronRight size={15} />
-                        </button>
-                      ))}
-                      <p className="muted">
-                        Lifetime totals. Open each area for detailed recorded
-                        activity.
-                      </p>
-                    </div>
-                  </div>
-                  {directoryView()}
-                </>
-              )}
-              {tab === "clients" && (
-                <>
-                  {metrics([
-                    { key: "clients", name: "Registered clients" },
-                    { key: "activeClients", name: "Active accounts" },
-                    { key: "websites", name: "Connected websites" },
-                  ])}
-                  <div className="surface">
-                    <div className="card-heading">
-                      <div>
-                        <h3>Client accounts</h3>
-                        <span className="subtle">
-                          {organizations.length} businesses
-                        </span>
-                      </div>
-                      <button
-                        className="primary"
-                        onClick={() => setClientLogin({})}
-                      >
-                        <KeyRound size={16} />
-                        Create client login
-                      </button>
-                    </div>
-                    {organizations.length ? (
-                      <div className="table-scroll">
-                        <table>
-                          <thead>
-                            <tr>
-                              <th>Business / website</th>
-                              <th>Status</th>
-                              <th>Leads</th>
-                              <th>Campaigns</th>
-                              <th>Team</th>
-                              <th>Client logins</th>
-                              <th>Subscription</th>
-                              <th>Manage</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {organizations.map((organization) => (
-                              <tr key={text(organization.workspaceId)}>
-                                <td>
-                                  <button
-                                    className="text-button"
-                                    onClick={() =>
-                                      inspect(text(organization.workspaceId))
-                                    }
-                                  >
-                                    <b>{text(organization.name)}</b>
-                                  </button>
-                                  <small>
-                                    {text(
-                                      organization.websiteUrl,
-                                      "Website not connected",
-                                    )}
-                                  </small>
-                                </td>
-                                <td>
-                                  <Badge value={organization.status} />
-                                </td>
-                                <td>
-                                  {compact(object(organization.counts).leads)}
-                                </td>
-                                <td>
-                                  {compact(
-                                    object(organization.counts).campaigns,
-                                  )}
-                                </td>
-                                <td>
-                                  {compact(object(organization.counts).members)}
-                                </td>
-                                <td>
-                                  {rows(organization.clientLogins).length ? (
-                                    rows(organization.clientLogins).map(
-                                      (client) => (
-                                        <small key={text(client.id)}>
-                                          {text(client.email)}
-                                        </small>
-                                      ),
-                                    )
-                                  ) : (
-                                    <small>No client login yet</small>
-                                  )}
-                                </td>
-                                <td>
-                                  {text(
-                                    object(
-                                      object(organization.subscription).plan,
-                                    ).name ??
-                                      object(organization.subscription).planId,
-                                    "Unassigned",
-                                  )}
-                                  <small>
-                                    <Badge
-                                      value={
-                                        object(organization.subscription)
-                                          .status || "UNASSIGNED"
-                                      }
-                                    />
-                                  </small>
-                                </td>
-                                <td>
-                                  <div className="row-actions">
-                                    <Link
-                                      href={`/?client=${encodeURIComponent(text(organization.workspaceId))}&view=settings`}
-                                    >
-                                      Edit client
-                                    </Link>
-                                    <Link
-                                      href={`/?client=${encodeURIComponent(text(organization.workspaceId))}&view=campaigns`}
-                                    >
-                                      Create and send
-                                    </Link>
-                                    {organization.status === "ACTIVE" &&
-                                      organization.onboardingStatus !==
-                                        "DEMO" && (
-                                        <button
-                                          aria-label={`Create login for ${text(organization.name)}`}
-                                          onClick={() =>
-                                            setClientLogin({
-                                              workspaceId: text(
-                                                organization.workspaceId,
-                                              ),
-                                            })
-                                          }
-                                        >
-                                          <KeyRound size={14} />
-                                          Create login
-                                        </button>
-                                      )}
-                                    <button
-                                      onClick={() => changeAccess(organization)}
-                                    >
-                                      {organization.status === "ACTIVE"
-                                        ? "Suspend"
-                                        : "Activate"}
-                                    </button>
-                                    <button
-                                      onClick={() =>
-                                        subscriptionEditor(organization)
-                                      }
-                                    >
-                                      <CreditCard size={14} />
-                                      Plan
-                                    </button>
-                                  </div>
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    ) : (
-                      <Empty
-                        title="Your platform is ready for its first business."
-                        detail="Registered businesses appear here with their access and subscriptions."
-                      />
-                    )}
-                  </div>
-                </>
-              )}
-              {tab === "websites" && (
-                <>
-                  {metrics([
-                    { key: "websites", name: "Connected websites" },
-                    { key: "discovered", name: "Businesses discovered" },
-                    { key: "qualified", name: "Qualified opportunities" },
-                  ])}
-                  {directoryView()}
-                </>
-              )}
-              {tab === "leads" && (
-                <>
-                  {workspaceTools("leads", "Add or edit leads")}
-                  {metrics([
-                    { key: "discovered", name: "Businesses discovered" },
-                    { key: "qualified", name: "Qualified leads" },
-                    { key: "meetings", name: "Meeting requests" },
-                  ])}
-                  <div className="admin-analytics-grid">
-                    {chart(
-                      "Opportunity, over time",
-                      "Businesses added to client lead directories.",
-                      [{ key: "leads", label: "Businesses discovered" }],
-                    )}
-                    <div className="surface">
-                      <div className="card-heading">
-                        <h3>Qualification mix</h3>
-                        <Radar size={19} />
-                      </div>
-                      <div className="admin-usage-list">
-                        {rows(insights.leadCategories).map((category) => (
-                          <div key={text(category.category)}>
-                            <span>{label(category.category)}</span>
-                            <b>{compact(category.count)}</b>
-                          </div>
-                        ))}
-                      </div>
-                      {!rows(insights.leadCategories).length && (
-                        <Empty
-                          title="Intelligence begins with discovery."
-                          detail="Lead qualification categories appear after research is recorded."
-                        />
-                      )}
-                    </div>
-                  </div>
-                  {directoryView()}
-                </>
-              )}
-              {tab === "outreach" && (
-                <>
-                  {workspaceTools("mailboxes", "Manage sending mailbox")}
-                  {metrics([
-                    {
-                      key: "sent",
-                      name: "Emails sent",
-                      detail: "Provider acceptance, not confirmed delivery",
-                    },
-                    {
-                      key: "delivered",
-                      name: "Confirmed deliveries",
-                      detail: "Recorded delivery events only",
-                    },
-                    { key: "bounces", name: "Hard bounces" },
-                    { key: "complaints", name: "Complaints" },
-                  ])}
-                  {chart(
-                    "Outreach performance",
-                    "Only actual provider events contribute to delivery and bounce figures.",
-                    [
-                      { key: "sent", label: "Sent" },
-                      { key: "delivered", label: "Delivered" },
-                      { key: "bounces", label: "Bounced" },
-                    ],
-                  )}
-                  <div className="surface section-space">
-                    <SectionHeading
-                      title="Sending account status"
-                      detail="Mailbox readiness across all client businesses."
-                    />
-                    <div className="admin-status-list">
-                      {rows(insights.mailboxStatuses).map((item) => (
-                        <div key={text(item.status)}>
-                          <Badge value={item.status} />
-                          <strong>{compact(item.count)}</strong>
-                        </div>
-                      ))}
-                    </div>
-                    {!rows(insights.mailboxStatuses).length && (
-                      <Empty
-                        title="No client mailboxes connected yet."
-                        detail="Clients authorize their own business email account from Email Connections."
-                      />
-                    )}
-                    <p className="table-caption">
-                      Gmail confirms acceptance for sending. It does not provide
-                      confirmed message delivery or reliable open tracking.
-                    </p>
-                  </div>
-                </>
-              )}
-              {tab === "outreach" && (
-                <>
-                  {workspaceTools("campaigns", "Create and send campaign")}
-                  {metrics([
-                    { key: "campaigns", name: "Total campaigns" },
-                    { key: "activeCampaigns", name: "Active campaigns" },
-                    { key: "positive", name: "Positive responses" },
-                  ])}
-                  <div className="surface">
-                    <div className="card-heading">
-                      <h3>Campaign performance</h3>
-                      <select
-                        aria-label="Filter campaigns"
-                        value={campaignStatus}
-                        onChange={(event) =>
-                          setCampaignStatus(event.target.value)
-                        }
-                      >
-                        {[
-                          "ALL",
-                          "DRAFT",
-                          "PENDING_APPROVAL",
-                          "APPROVED",
-                          "RUNNING",
-                          "PAUSED",
-                          "COMPLETED",
-                          "CANCELLED",
-                        ].map((value) => (
-                          <option key={value} value={value}>
-                            {value === "ALL"
-                              ? "All campaign statuses"
-                              : label(value)}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    {campaignTable(
-                      rows(insights.campaigns).filter(
-                        (campaign) =>
-                          campaignStatus === "ALL" ||
-                          campaign.status === campaignStatus,
-                      ),
-                    )}
-                    <p className="table-caption">
-                      Up to 100 recently updated campaigns · Lifetime outcomes
-                    </p>
-                  </div>
-                </>
-              )}
-              {tab === "inbox" && (
-                <>
-                  {metrics([
-                    { key: "replies", name: "Replies received" },
-                    { key: "positive", name: "Positive responses" },
-                    { key: "meetings", name: "Meeting requests" },
-                  ])}
-                  {chart(
-                    "Signals of interest",
-                    "Response counts from client inboxes. Message contents remain in their workspace.",
-                    positiveMetrics,
-                  )}
-                  <div className="surface section-space">
-                    <SectionHeading
-                      title="Conversations by business"
-                      detail="Aggregate inbox outcomes for platform monitoring."
-                    />
-                    {directory.length ? (
-                      <div className="table-scroll">
-                        <table>
-                          <thead>
-                            <tr>
-                              <th>Business</th>
-                              <th>Emails sent</th>
-                              <th>Replies</th>
-                              <th>Positive replies</th>
-                              <th>Inspect</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {[...directory]
-                              .sort(
-                                (a, b) => number(b.replies) - number(a.replies),
-                              )
-                              .map((organization) => (
-                                <tr key={text(organization.workspaceId)}>
-                                  <td>
-                                    <b>{text(organization.name)}</b>
-                                    <small>
-                                      {text(organization.websiteUrl)}
-                                    </small>
-                                  </td>
-                                  <td>{compact(organization.sent)}</td>
-                                  <td>{compact(organization.replies)}</td>
-                                  <td>{compact(organization.positive)}</td>
-                                  <td>
-                                    <button
-                                      onClick={() =>
-                                        inspect(text(organization.workspaceId))
-                                      }
-                                    >
-                                      View business <ArrowUpRight size={14} />
-                                    </button>
-                                  </td>
-                                </tr>
-                              ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    ) : (
-                      <Empty
-                        title="Conversations will appear as businesses connect."
-                        detail="This view shows response counts without exposing clients' private email content."
-                      />
-                    )}
-                  </div>
-                </>
-              )}
-              {tab === "automation" && (
-                <>
-                  {metrics([
-                    { key: "executions", name: "All executions" },
-                    { key: "succeeded", name: "Successful executions" },
-                    { key: "failed", name: "Needs attention" },
-                    { key: "pending", name: "Queued or in progress" },
-                  ])}
-                  <div className="admin-connection-banner">
-                    <span
-                      className={`connection-indicator ${configuration.n8n ? "ready" : ""}`}
-                    />
-                    <div>
-                      <b>n8n orchestration</b>
-                      <p>
-                        {configuration.n8n
-                          ? "Connection configuration is present. Execution outcomes below show actual workflow activity."
-                          : "Configure n8n to orchestrate background workflows. No connection is currently configured."}
-                      </p>
-                    </div>
-                    <Badge
-                      value={
-                        configuration.n8n ? "CONFIGURED" : "NOT_CONFIGURED"
-                      }
-                    />
-                  </div>
-                  {chart(
-                    "Workflow activity",
-                    "Executions created and workflows requiring review in this period.",
-                    [
-                      { key: "executions", label: "Executions" },
-                      { key: "failed", label: "Needs attention" },
-                    ],
-                  )}
-                  <div className="surface section-space">
-                    <div className="card-heading">
-                      <h3>Execution history</h3>
-                      <select
-                        aria-label="Filter workflow status"
-                        value={jobStatus}
-                        onChange={(event) => setJobStatus(event.target.value)}
-                      >
-                        {[
-                          "ALL",
-                          "QUEUED",
-                          "WAITING_AUTOMATION",
-                          "READY",
-                          "RUNNING",
-                          "SUCCEEDED",
-                          "FAILED",
-                          "REVIEW_REQUIRED",
-                        ].map((value) => (
-                          <option key={value} value={value}>
-                            {value === "ALL"
-                              ? "All execution statuses"
-                              : label(value)}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    {executionTable(
-                      rows(insights.jobs).filter(
-                        (job) =>
-                          jobStatus === "ALL" || job.status === jobStatus,
-                      ),
-                    )}
-                    <p className="table-caption">
-                      Up to 100 recent executions in the selected period ·
-                      Attempts and dispatches are recorded independently.
-                    </p>
-                  </div>
-                </>
-              )}
-              {tab === "analytics" && (
-                <>
-                  <div className="admin-analytics-grid">
-                    {chart(
-                      "Outreach performance",
-                      "Accepted email and response events.",
-                      [
-                        { key: "sent", label: "Emails sent" },
-                        ...positiveMetrics,
-                      ],
-                    )}
-                    {chart(
-                      "Client growth",
-                      "Newly registered businesses in this period.",
-                      [{ key: "clients", label: "New clients" }],
-                    )}
-                    {chart("Lead generation", "Recorded business discovery.", [
-                      { key: "leads", label: "Discovered businesses" },
-                    ])}
-                    {chart(
-                      "Website activity",
-                      "Completed website analyses recorded in the selected period.",
-                      [{ key: "websites", label: "Website analyses" }],
-                    )}
-                    {chart(
-                      "Automation activity",
-                      "Workflow creation and reviews.",
-                      [
-                        { key: "executions", label: "Executions" },
-                        { key: "failed", label: "To review" },
-                      ],
-                    )}
-                    {chart(
-                      "Platform usage",
-                      "Recorded billable usage units, not estimated provider cost.",
-                      [{ key: "usage", label: "Usage units" }],
-                    )}
-                  </div>
-                  <div className="surface section-space">
-                    <SectionHeading
-                      title="Usage by capability"
-                      detail="Actual recorded quantities in your selected date range."
-                    />
-                    <div className="admin-usage-list">
-                      {rows(insights.usage).map((item) => (
-                        <div key={text(item.kind)}>
-                          <span>{label(item.kind)}</span>
-                          <b>{compact(item.quantity)}</b>
-                        </div>
-                      ))}
-                    </div>
-                    {!rows(insights.usage).length && (
-                      <Empty
-                        title="No usage recorded in this period."
-                        detail="Operations appear here as clients use connected platform capabilities."
-                      />
-                    )}
-                  </div>
-                </>
-              )}
-              {tab === "subscriptions" && (
-                <>
-                  <SectionHeading
-                    title="Plans built for your businesses"
-                    detail="Configure pricing, features and allowances without hardcoded tiers."
-                    action={
-                      <button className="primary" onClick={() => planEditor()}>
-                        <Plus size={16} />
-                        Create plan
-                      </button>
-                    }
-                  />
-                  <div className="pricing-grid admin-plan-grid">
-                    {plans.map((plan) => (
-                      <article
-                        className="surface plan-card"
-                        key={text(plan.id)}
-                      >
-                        <div className="card-heading">
-                          <h3>{text(plan.name)}</h3>
-                          <Badge
-                            value={plan.available ? "AVAILABLE" : "UNAVAILABLE"}
-                          />
-                        </div>
-                        <p className="plan-price">
-                          {plan.priceMinor === null
-                            ? "Arranged pricing"
-                            : `${text(plan.currency)} ${(number(plan.priceMinor) / 100).toLocaleString("en-ZA", { minimumFractionDigits: 2 })}`}
-                          <small>/ month</small>
-                        </p>
-                        <dl className="plan-limits">
-                          {[
-                            {
-                              key: "monthlyProspects",
-                              title: "Monthly discoveries",
-                            },
-                            { key: "dailyEmails", title: "Daily emails" },
-                            { key: "dailyAi", title: "Daily AI operations" },
-                            { key: "teamMembers", title: "Team members" },
-                          ].map((item) => (
-                            <div key={item.key}>
-                              <dt>{item.title}</dt>
-                              <dd>{compact(plan[item.key])}</dd>
-                            </div>
-                          ))}
-                        </dl>
-                        {Array.isArray(plan.features) && (
-                          <ul className="plan-features">
-                            {plan.features.map((feature) => (
-                              <li key={text(feature)}>
-                                <Check size={14} />
-                                {text(feature)}
-                              </li>
-                            ))}
-                          </ul>
-                        )}
-                        <button onClick={() => planEditor(plan)}>
-                          Configure plan <ChevronRight size={14} />
-                        </button>
-                      </article>
-                    ))}
-                  </div>
-                  {!plans.length && (
-                    <Empty
-                      title="Design your first subscription plan."
-                      detail="Define a price and allowances, then assign the plan to a business."
-                    />
-                  )}
-                  <div className="surface section-space">
-                    <SectionHeading
-                      title="Business subscriptions"
-                      detail="Verified billing references remain required for paid activation."
-                    />
-                    {organizations.length ? (
-                      <div className="table-scroll">
-                        <table>
-                          <thead>
-                            <tr>
-                              <th>Business</th>
-                              <th>Plan</th>
-                              <th>Status</th>
-                              <th>Period end</th>
-                              <th>Manage</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {organizations.map((organization) => (
-                              <tr key={text(organization.workspaceId)}>
-                                <td>
-                                  <b>{text(organization.name)}</b>
-                                </td>
-                                <td>
-                                  {text(
-                                    object(
-                                      object(organization.subscription).plan,
-                                    ).name,
-                                    "Unassigned",
-                                  )}
-                                </td>
-                                <td>
-                                  <Badge
-                                    value={
-                                      object(organization.subscription)
-                                        .status || "UNASSIGNED"
-                                    }
-                                  />
-                                </td>
-                                <td>
-                                  {date(
-                                    object(organization.subscription).periodEnd,
-                                  )}
-                                </td>
-                                <td>
-                                  <button
-                                    onClick={() =>
-                                      subscriptionEditor(organization)
-                                    }
-                                  >
-                                    Manage subscription
-                                  </button>
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    ) : (
-                      <Empty
-                        title="No subscriptions to manage yet."
-                        detail="Business subscriptions will appear after registration."
-                      />
-                    )}
-                  </div>
-                </>
-              )}
-              {tab === "settings" && (
-                <>
-                  <div className="admin-config-grid">
-                    {[
-                      {
-                        key: "google",
-                        name: "Business email authorization",
-                        detail:
-                          "Google OAuth configuration for each client's own Gmail or Workspace account.",
-                      },
-                      {
-                        key: "liveEmail",
-                        name: "Live email delivery",
-                        detail:
-                          "Server permission for real delivery. Client mailbox activation remains separate.",
-                      },
-                      {
-                        key: "n8n",
-                        name: "n8n orchestration",
-                        detail:
-                          "Trusted workflow endpoint and shared authentication are configured.",
-                      },
-                      {
-                        key: "encryption",
-                        name: "Credential encryption",
-                        detail:
-                          "Server encryption key for stored provider credentials.",
-                      },
-                      {
-                        key: "tenantDatabase",
-                        name: "Tenant database isolation",
-                        detail:
-                          "Restricted database connection used for authorized tenant operations.",
-                      },
-                    ].map((item) => (
-                      <article
-                        className="surface admin-config-card"
-                        key={item.key}
-                      >
-                        <span className="mini-icon">
-                          <ShieldCheck size={20} />
-                        </span>
-                        <Badge
-                          value={
-                            configuration[item.key]
-                              ? "CONFIGURED"
-                              : "NOT_CONFIGURED"
-                          }
-                        />
-                        <h3>{item.name}</h3>
-                        <p>{item.detail}</p>
-                      </article>
-                    ))}
-                  </div>
-                  <div className="surface section-space">
-                    <SectionHeading
-                      title="Platform controls"
-                      detail="Manage client access and commercial plans through authenticated administration."
-                    />
-                    <div className="admin-control-actions">
-                      <button onClick={() => navigate("clients")}>
-                        <Users size={17} />
-                        Manage client access
-                        <ArrowUpRight size={16} />
-                      </button>
-                      <button onClick={() => navigate("subscriptions")}>
-                        <CreditCard size={17} />
-                        Configure subscription plans
-                        <ArrowUpRight size={16} />
-                      </button>
-                      <Link href="/account" className="button">
-                        <ShieldCheck size={17} />
-                        Your account settings
-                        <ArrowUpRight size={16} />
-                      </Link>
-                    </div>
-                    <p className="table-caption">
-                      Provider secrets and deployment configuration are managed
-                      on the server. This screen reports configuration presence;
-                      it does not claim to perform live provider health checks.
-                    </p>
-                  </div>
-                </>
-              )}
+              {tab === "overview" && renderOverview()}
+              {tab === "clients" && renderClients()}
+              {tab === "lead-generation" && renderLeadGeneration()}
+              {tab === "outreach" && renderOutreach()}
+              {tab === "pipeline" && <SalesPipeline businesses={organizations} />}
+              {tab === "content" && <ContentLibrary />}
+              {tab === "settings" && renderSettings()}
             </div>
           )}
           <footer className="admin-data-footer">
             <span>
               <ShieldCheck size={13} />
-              Platform oversight · Client content stays private
+              Client email content stays in each client&apos;s workspace
             </span>
             <span>Updated {date(insights.generatedAt, true)}</span>
           </footer>
@@ -1856,7 +2168,7 @@ export default function AdminScreen() {
         <div className="admin-inspector-backdrop">
           <button
             className="admin-inspector-scrim"
-            aria-label="Close website inspector"
+            aria-label="Close client details"
             onClick={() => setSelected("")}
           />
           <section
@@ -1864,17 +2176,17 @@ export default function AdminScreen() {
             className="admin-inspector"
             role="dialog"
             aria-modal="true"
-            aria-label="Website management details"
+            aria-label="Client details"
             tabIndex={-1}
           >
             <div className="admin-inspector-header">
               <div>
-                <p className="eyebrow">WEBSITE INTELLIGENCE</p>
-                <h2>{text(inspected?.name, "Business overview")}</h2>
+                <p className="eyebrow">CLIENT</p>
+                <h2>{text(inspected?.name, "Client")}</h2>
               </div>
               <button
                 className="icon-button"
-                aria-label="Close website inspector"
+                aria-label="Close client details"
                 onClick={() => setSelected("")}
               >
                 <X size={21} />
@@ -1892,10 +2204,10 @@ export default function AdminScreen() {
                   <Globe2 size={22} />
                   <div>
                     <strong>
-                      {text(inspected?.websiteUrl, "Website not connected")}
+                      {text(inspected?.websiteUrl, "No website yet")}
                     </strong>
                     <small>
-                      {text(inspected?.accountEmail, "No client administrator")}
+                      {text(inspected?.accountEmail, "No client login yet")}
                     </small>
                   </div>
                   {typeof inspected?.websiteUrl === "string" &&
@@ -1905,7 +2217,7 @@ export default function AdminScreen() {
                         target="_blank"
                         rel="noopener noreferrer"
                         className="icon-button"
-                        aria-label="Open business website"
+                        aria-label="Open the client's website"
                       >
                         <ExternalLink size={17} />
                       </a>
@@ -1918,53 +2230,41 @@ export default function AdminScreen() {
                     value={inspected?.subscriptionStatus || "UNASSIGNED"}
                   />
                 </div>
-                <Link
-                  href={`/?client=${encodeURIComponent(selected)}`}
-                  className="button"
-                >
-                  Open client workspace <ArrowUpRight size={15} />
-                </Link>
                 <div className="inline-actions">
-                  <Link
-                    className="button"
-                    href={`/?client=${encodeURIComponent(selected)}&view=business`}
-                  >
-                    Edit website and targeting
+                  <Link href={clientLink(selected)} className="button primary">
+                    Open workspace <ArrowUpRight size={15} />
                   </Link>
-                  <Link
-                    className="button"
-                    href={`/?client=${encodeURIComponent(selected)}&view=leads`}
-                  >
-                    Manage leads
+                  <Link className="button" href={clientLink(selected, "business")}>
+                    Website & targeting
                   </Link>
-                  <Link
-                    className="button"
-                    href={`/?client=${encodeURIComponent(selected)}&view=campaigns`}
-                  >
-                    Create and send campaign
+                  <Link className="button" href={clientLink(selected, "leads")}>
+                    Leads
+                  </Link>
+                  <Link className="button" href={clientLink(selected, "campaigns")}>
+                    Campaigns
                   </Link>
                 </div>
-                {metrics(
-                  [
-                    { key: "discovered", name: "Discovered" },
-                    { key: "qualified", name: "Qualified" },
-                    { key: "sent", name: "Emails sent" },
-                    { key: "replies", name: "Replies" },
-                  ],
-                  inspected,
-                )}
-                <div className="surface">
-                  <SectionHeading
-                    title="Website analysis"
-                    detail={text(
-                      inspected?.targetMarket,
-                      "Client target market has not been reviewed.",
-                    )}
+                <Stats>
+                  <Stat label="Leads found" value={inspected?.discovered} />
+                  <Stat label="Qualified" value={inspected?.qualified} />
+                  <Stat label="Emails sent" value={inspected?.sent} />
+                  <Stat
+                    label="Replies"
+                    value={inspected?.replies}
+                    hint={`${percent(inspected?.replies, inspected?.sent)} reply rate`}
                   />
-                  <p>
+                </Stats>
+                <Panel
+                  title="Website and business"
+                  detail={text(
+                    inspected?.targetMarket,
+                    "Target customers not reviewed yet.",
+                  )}
+                >
+                  <p className="adm-panel-copy">
                     {text(
                       object(inspected?.analysis).summary,
-                      "Website analysis has not been recorded. The client can connect and analyze their website from My Website.",
+                      "The website hasn't been analysed yet. Open Website & targeting to run it.",
                     )}
                   </p>
                   <dl className="admin-detail-grid">
@@ -1988,32 +2288,22 @@ export default function AdminScreen() {
                       </div>
                     ))}
                   </dl>
-                </div>
-                {chart(
-                  "Business outreach",
-                  "Recorded outcomes for this client in the selected period.",
-                  [{ key: "sent", label: "Sent" }, ...positiveMetrics],
-                  rows(detail.series),
-                )}
-                <div className="surface">
-                  <SectionHeading
-                    title="Campaign performance"
-                    detail="Client campaign status and lifetime outcomes."
+                </Panel>
+                <Panel className="adm-chart-panel">
+                  <TrendChart
+                    values={rows(detail.series)}
+                    title="Outreach"
+                    description={`This client's results, ${rangeLabel}.`}
+                    metrics={[
+                      { key: "sent", label: "Sent" },
+                      { key: "replies", label: "Replies" },
+                      { key: "positive", label: "Positive replies" },
+                    ]}
                   />
-                  {campaignTable(rows(detail.campaigns))}
-                </div>
-                <div className="surface">
-                  <SectionHeading
-                    title="Automation status"
-                    detail="Recorded executions in the selected period."
-                  />
-                  {executionTable(rows(detail.jobs))}
-                </div>
-                <div className="surface">
-                  <SectionHeading
-                    title="Recent business activity"
-                    detail="Operational events without private lead or email content."
-                  />
+                </Panel>
+                <Panel title="Campaigns">{campaignTable(rows(detail.campaigns))}</Panel>
+                <Panel title="Automation runs">{executionTable(rows(detail.jobs))}</Panel>
+                <Panel title="Recent activity">
                   {rows(detail.activity).length ? (
                     <div className="activity-list">
                       {rows(detail.activity).map((item) => (
@@ -2027,9 +2317,9 @@ export default function AdminScreen() {
                       ))}
                     </div>
                   ) : (
-                    <p className="muted">No business activity recorded.</p>
+                    <p className="muted">No activity recorded.</p>
                   )}
-                </div>
+                </Panel>
               </>
             )}
           </section>

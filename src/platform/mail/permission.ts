@@ -25,6 +25,20 @@ export function replyBlocksOutreach(lead: ConsentFields) {
   );
 }
 
+/** A lead qualifies with an AI fit score at or above the client's minimum, or because the
+ * outreach autopilot found it by an exact niche match (category "NICHE_MATCH", no AI score). */
+export function meetsQualification(
+  lead: Pick<PlatformLead, "qualificationScore"> & {
+    qualificationCategory?: string | null;
+  },
+  minimumScore: number,
+) {
+  return (
+    lead.qualificationCategory === "NICHE_MATCH" ||
+    (lead.qualificationScore !== null && lead.qualificationScore >= minimumScore)
+  );
+}
+
 export function permissionNotice(business: string) {
   return `This is a one-time request for permission under South Africa's Protection of Personal Information Act. ${business} will only send you marketing emails if you reply YES. If you do not reply, we will not email you again.`;
 }
@@ -44,7 +58,7 @@ export function permissionRequestBlocker(
     | "consentAt"
     | "repliedAt"
     | "unsubscribedAt"
-  >,
+  > & { qualificationCategory?: string | null },
   minimumScore: number,
   alreadyAsked: boolean,
   now = new Date(),
@@ -58,10 +72,7 @@ export function permissionRequestBlocker(
     lead.verifiedAt.getTime() < now.getTime() - 30 * 86400_000
   )
     return "Lead needs recent valid email verification";
-  if (
-    lead.qualificationScore === null ||
-    lead.qualificationScore < minimumScore
-  )
+  if (!meetsQualification(lead, minimumScore))
     return "Lead does not meet the approved qualification threshold";
   if (hasMarketingPermission(lead, now))
     return "Lead already has recorded permission; add it to an outreach campaign instead";

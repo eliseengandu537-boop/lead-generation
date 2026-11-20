@@ -23,7 +23,9 @@ import { mailboxAccess, providerName, type MailboxAccess } from "./provider";
 import { pauseUnsafeCampaign } from "./events";
 import { withinSendingWindow } from "./schedule";
 import { personalizeFollowup, unfilledEmailFields } from "./content";
+import { outreachReplyTo } from "../outreach-settings";
 import {
+  meetsQualification,
   permissionAskedLeadIds,
   permissionRequestBlocker,
   replyBlocksOutreach,
@@ -185,10 +187,7 @@ export async function sendCampaignMessage(
       const threshold = minimumScore.success
         ? (minimumScore.data.minimumScore ?? 70)
         : 70;
-      if (
-        lead.qualificationScore === null ||
-        lead.qualificationScore < threshold
-      )
+      if (!meetsQualification(lead, threshold))
         throw new Error(
           "Lead does not meet this campaign's qualification threshold",
         );
@@ -420,12 +419,26 @@ async function deliverReservedMessage(
           },
         })
       : null;
+    // Campaign emails can send replies to the client's sales reps. The sending inbox stays
+    // in Reply-To too, so every reply is still counted and consent from a YES is recorded.
+    const reps =
+      message.campaignId && !message.replyToMessageId
+        ? outreachReplyTo(
+            (
+              await db.platformOrganization.findUnique({
+                where: { workspaceId: message.workspaceId },
+                select: { outreach: true },
+              })
+            )?.outreach,
+          )
+        : [];
     const mail = {
       from: message.fromEmail,
       to: message.toEmail,
       subject: message.subject,
       body: message.body,
       rfcMessageId: message.rfcMessageId,
+      ...(reps.length ? { replyTo: [...reps, message.fromEmail] } : {}),
       ...(!message.replyToMessageId
         ? {
             unsubscribeUrl: unsubscribeLink(message.id),

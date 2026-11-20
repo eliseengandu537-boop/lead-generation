@@ -17,6 +17,7 @@ import { isSendingProvider } from "./mail/provider";
 import { verificationConfigured } from "./research/verification";
 import {
   campaignPurposes,
+  meetsQualification,
   permissionAskedLeadIds,
   permissionRequestBlocker,
   replyBlocksOutreach,
@@ -161,7 +162,7 @@ const leadFields = z.object({
   website,
   sourceUrl: website,
   sourceKind: z
-    .enum(["MANUAL", "CSV", "PUBLIC_WEB", "WEBSITE_ENQUIRY"])
+    .enum(["MANUAL", "CSV", "PUBLIC_WEB", "WEBSITE_ENQUIRY", "OVERTURE"])
     .default("MANUAL"),
   contactRole: z.string().max(160).default(""),
   notes: z.string().max(20_000).default(""),
@@ -464,7 +465,7 @@ export function leadSendBlocker(
     | "consentAt"
     | "repliedAt"
     | "unsubscribedAt"
-  >,
+  > & { qualificationCategory?: string | null },
   minimumScore: number,
   now = new Date(),
 ) {
@@ -477,10 +478,7 @@ export function leadSendBlocker(
     lead.verifiedAt.getTime() < now.getTime() - 30 * 86400_000
   )
     return "Lead needs recent valid email verification";
-  if (
-    lead.qualificationScore === null ||
-    lead.qualificationScore < minimumScore
-  )
+  if (!meetsQualification(lead, minimumScore))
     return "Lead does not meet the approved qualification threshold";
   if (
     lead.eligibility !== "CONSENTED" ||
@@ -698,6 +696,43 @@ export async function mutateAuthorizedResource(
         `verify-all:${lead.id}:${lead.email}:${day}`,
       );
     return { queued: leads.length, provider: verificationConfigured() };
+  }
+  if (resource === "leads" && envelope.action === "bulk") {
+    // Selected leads only. Research also scores the lead and checks its email.
+    const { operation, ids } = z
+      .object({
+        operation: z.enum(["research", "verify"]),
+        ids: z.array(z.string().min(1).max(100)).min(1).max(500),
+      })
+      .parse(input);
+    const leads = await db.platformLead.findMany({
+      where: {
+        id: { in: ids },
+        status: { notIn: ["ARCHIVED", "UNSUBSCRIBED"] },
+        ...(operation === "verify"
+          ? { email: { not: null } }
+          : { website: { not: "" } }),
+      },
+      select: { id: true, email: true },
+    });
+    const day = new Date().toISOString().slice(0, 10);
+    for (const lead of leads)
+      await enqueueJob(
+        workspaceId,
+        user.id,
+        operation === "verify" ? "VERIFY_EMAIL" : "RESEARCH_LEAD",
+        { leadId: lead.id },
+        `${operation}-selected:${lead.id}:${lead.email ?? ""}:${day}`,
+      );
+    const skipped = ids.length - leads.length;
+    return {
+      queued: leads.length,
+      skipped,
+      message:
+        operation === "verify"
+          ? `${leads.length} email${leads.length === 1 ? "" : "s"} queued for checking.${skipped ? ` ${skipped} skipped (no email address).` : ""}`
+          : `${leads.length} lead${leads.length === 1 ? "" : "s"} queued for research and scoring.${skipped ? ` ${skipped} skipped (no website to research).` : ""}`,
+    };
   }
   if (
     resource === "leads" &&

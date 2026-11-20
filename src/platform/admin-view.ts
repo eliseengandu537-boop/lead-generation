@@ -346,6 +346,9 @@ export async function adminInsights(query: URLSearchParams) {
       google: Boolean(
         process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET,
       ),
+      microsoft: Boolean(
+        process.env.MICROSOFT_CLIENT_ID && process.env.MICROSOFT_CLIENT_SECRET,
+      ),
       liveEmail: process.env.LIVE_EMAIL_ENABLED === "true",
       n8n: n8nConfigured,
       encryption: Boolean(process.env.ENCRYPTION_KEY),

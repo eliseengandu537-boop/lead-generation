@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import "./caller.css";
+import "./admin.css";
+import "./workspace.css";
 import { ThemeProvider } from "@/product/theme";
 export const metadata: Metadata = {
   title: "Monettic — Business Intelligence & Outreach",
