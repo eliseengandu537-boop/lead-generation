@@ -56,3 +56,16 @@ export function placeholdersLeft(...content: string[]) {
     ),
   ];
 }
+
+/** A stored business profile as a plain object (empty when missing or unreadable). */
+export function profileOf(profile: unknown): Record<string, unknown> {
+  return profile && typeof profile === "object" && !Array.isArray(profile)
+    ? (profile as Record<string, unknown>)
+    : {};
+}
+
+/** The name businesses see in the email and the POPIA notice: the profile's company name, else the workspace name. */
+export function senderBusinessName(profile: unknown, workspaceName: string) {
+  const name = profileOf(profile).companyName;
+  return typeof name === "string" && name.trim() ? name.trim().slice(0, 200) : workspaceName;
+}

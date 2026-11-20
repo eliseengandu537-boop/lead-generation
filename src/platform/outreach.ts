@@ -21,6 +21,8 @@ import {
   nicheSchema,
   outreachSettings,
   placeholdersLeft,
+  profileOf,
+  senderBusinessName,
   type OutreachSettings,
 } from "./outreach-settings";
 
@@ -146,7 +148,10 @@ export async function outreachRead(workspaceId: string) {
     return { day, sent: days.get(day)?.sent ?? 0, replies: days.get(day)?.replies ?? 0 };
   });
   return {
-    business: { name: workspace.name, website: organization.websiteUrl },
+    business: {
+      name: senderBusinessName(organization.profile, workspace.name),
+      website: organization.websiteUrl,
+    },
     settings: {
       enabled: settings.enabled,
       niches: settings.niches,
@@ -259,10 +264,10 @@ export async function outreachWrite(workspaceId: string, raw: unknown) {
                 .map((item) => `${item.niche} in ${item.area}`)
                 .join("; ")
                 .slice(0, 2000),
+              // Keep whatever the profile already says; only fill in a missing company name.
               profile: {
-                ...((organization.profile ?? {}) as Record<string, unknown>),
-                companyName: workspace.name,
-                source: "Entered by the agency for outreach",
+                ...profileOf(organization.profile),
+                companyName: senderBusinessName(organization.profile, workspace.name),
               },
               onboardingStatus: "ACTIVE",
             }
@@ -279,7 +284,11 @@ export async function outreachWrite(workspaceId: string, raw: unknown) {
     });
   });
   if (settings.campaignId || input.action === "start")
-    await syncCampaign(workspaceId, settings, workspace.name);
+    await syncCampaign(
+      workspaceId,
+      settings,
+      senderBusinessName(organization.profile, workspace.name),
+    );
   return { message };
 }
 
@@ -597,9 +606,10 @@ export async function outreachTick(provider = fetchWebsiteProspects) {
           }),
           db.platformOrganization.findUniqueOrThrow({
             where: { workspaceId },
-            select: { outreach: true, qualificationCriteria: true },
+            select: { outreach: true, qualificationCriteria: true, profile: true },
           }),
         ]);
+        const businessName = senderBusinessName(current.profile, workspace.name);
         let state = outreachSettings(current.outreach);
         const minimumScore = z
           .object({ minimumScore: z.number().optional() })
@@ -635,9 +645,9 @@ export async function outreachTick(provider = fetchWebsiteProspects) {
         }
         const emailsFound = await findEmails(workspaceId, 8);
         const emailsChecked = await checkEmails(workspaceId, 20);
-        const { campaignId, live } = await syncCampaign(workspaceId, state, workspace.name);
+        const { campaignId, live } = await syncCampaign(workspaceId, state, businessName);
         const queued = live
-          ? await queueEmails(workspaceId, state, campaignId, workspace.name, threshold)
+          ? await queueEmails(workspaceId, state, campaignId, businessName, threshold)
           : 0;
         return { workspaceId, lastFind, emailsFound, emailsChecked, queued, liveInboxes: live };
       }),

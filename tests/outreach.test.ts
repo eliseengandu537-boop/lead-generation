@@ -9,6 +9,7 @@ import {
   outreachReplyTo,
   outreachSettings,
   placeholdersLeft,
+  senderBusinessName,
 } from "../src/platform/outreach-settings";
 
 const mail = {
@@ -69,4 +70,14 @@ test("outreach settings fall back to safe defaults and flag leftover placeholder
     placeholdersLeft("Quick question for {{company}}", "Hi {{name}}, I'm {{your name}} from {{ client }}."),
     ["your name", "client"],
   );
+});
+
+test("emails and the POPIA notice name the business from its profile, not the workspace label", () => {
+  assert.equal(
+    senderBusinessName({ companyName: " DCB Auto Electrical Spares " }, "dcbspare"),
+    "DCB Auto Electrical Spares",
+  );
+  assert.equal(senderBusinessName({ companyName: "" }, "dcbspare"), "dcbspare");
+  assert.equal(senderBusinessName(null, "dcbspare"), "dcbspare");
+  assert.equal(senderBusinessName(["not", "a", "profile"], "dcbspare"), "dcbspare");
 });
