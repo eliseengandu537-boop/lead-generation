@@ -160,3 +160,10 @@ test("{{sender}} becomes the sending inbox's first name; skip words match names"
   assert.ok(excluded(["battery"], "Acme", "forklift_battery_supplier"));
   assert.ok(!excluded(["training"], "Fred's Forklift and Plant Hire"));
 });
+
+test("the From line shows the sender's name, safely encoded", () => {
+  assert.match(mimeMessage({ ...mail, fromName: "Warren at DCB Auto Cape" }), /^From: "Warren at DCB Auto Cape" <gary@client\.example>\r\n/);
+  assert.match(mimeMessage({ ...mail, fromName: 'Bad "name"\r\nBcc: x@y.z' }), /^From: =\?UTF-8\?B\?[A-Za-z0-9+/=]+\?= <gary@client\.example>\r\n/);
+  assert.doesNotMatch(mimeMessage({ ...mail, fromName: 'x\r\nBcc: x@y.z' }), /\r\nBcc:/);
+  assert.match(mimeMessage(mail), /^From: gary@client\.example\r\n/);
+});

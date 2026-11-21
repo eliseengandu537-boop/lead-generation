@@ -26,6 +26,7 @@ import { personalizeFollowup, unfilledEmailFields } from "./content";
 import {
   outreachReplyTo,
   senderBusinessName,
+  senderFirstName,
   withSender,
 } from "../outreach-settings";
 import {
@@ -431,26 +432,37 @@ async function deliverReservedMessage(
     // Campaign emails can send replies to the client's sales reps. The sending inbox stays
     // in Reply-To too, so every reply is still counted and consent from a YES is recorded.
     // Each autopilot campaign can have its own reps (e.g. Western Cape replies to the Cape team).
+    const [organization, workspace, campaign] = await Promise.all([
+      db.platformOrganization.findUnique({
+        where: { workspaceId: message.workspaceId },
+        select: { outreach: true, profile: true },
+      }),
+      db.workspace.findUnique({
+        where: { id: message.workspaceId },
+        select: { name: true },
+      }),
+      message.campaignId
+        ? db.platformCampaign.findFirst({
+            where: { workspaceId: message.workspaceId, id: message.campaignId },
+            select: { target: true },
+          })
+        : null,
+    ]);
     const reps =
       message.campaignId && !message.replyToMessageId
-        ? await Promise.all([
-            db.platformOrganization.findUnique({
-              where: { workspaceId: message.workspaceId },
-              select: { outreach: true },
-            }),
-            db.platformCampaign.findFirst({
-              where: { workspaceId: message.workspaceId, id: message.campaignId },
-              select: { target: true },
-            }),
-          ]).then(([organization, campaign]) =>
-            outreachReplyTo(
-              organization?.outreach,
-              (campaign?.target as { lane?: unknown } | null)?.lane,
-            ),
+        ? outreachReplyTo(
+            organization?.outreach,
+            (campaign?.target as { lane?: unknown } | null)?.lane,
           )
         : [];
+    // "Warren at DCB Auto Electrical Spares" next to the address, so it reads like a person.
+    const firstName = senderFirstName(message.fromEmail);
+    const fromName = firstName
+      ? `${firstName} at ${senderBusinessName(organization?.profile, workspace?.name ?? "")}`.trim()
+      : undefined;
     const mail = {
       from: message.fromEmail,
+      fromName,
       to: message.toEmail,
       subject: message.subject,
       body: message.body,

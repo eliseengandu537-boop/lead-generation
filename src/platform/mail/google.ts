@@ -257,7 +257,17 @@ export type OutboundMail = {
   inReplyTo?: string;
   /** Where the lead's reply goes, e.g. the client's sales reps plus the sending inbox. */
   replyTo?: string[];
+  /** Name shown next to the sending address, e.g. "Warren at DCB Auto Electrical Spares". */
+  fromName?: string;
 };
+/** `"Name" <address>`, with the name encoded so any character is safe in the header. */
+function fromHeader(address: string, name?: string) {
+  const clean = name?.replace(/[\r\n\t]+/g, " ").trim().slice(0, 120);
+  if (!clean) return address;
+  return /^[\x20-\x7e]*$/.test(clean) && !/["\\]/.test(clean)
+    ? `"${clean}" <${address}>`
+    : `=?UTF-8?B?${Buffer.from(clean).toString("base64")}?= <${address}>`;
+}
 export function googleRawMessage(message: OutboundMail) {
   return Buffer.from(mimeMessage(message)).toString("base64url");
 }
@@ -270,7 +280,7 @@ export function mimeMessage(message: OutboundMail) {
   if (!/^<[a-z0-9.-]+@[a-z0-9.-]+>$/i.test(message.rfcMessageId))
     throw new Error("Invalid Message-ID");
   const headers = [
-    `From: ${message.from}`,
+    `From: ${fromHeader(message.from, message.fromName)}`,
     `To: ${message.to}`,
     `Subject: =?UTF-8?B?${Buffer.from(message.subject).toString("base64")}?=`,
     "MIME-Version: 1.0",
