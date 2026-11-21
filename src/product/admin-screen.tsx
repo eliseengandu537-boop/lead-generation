@@ -616,6 +616,33 @@ export default function AdminScreen() {
         }),
     });
   }
+  function deleteClientDialog(organization: RecordValue) {
+    const name = text(organization.name);
+    setDialog({
+      title: `Delete ${name}?`,
+      detail: `This permanently removes ${name} and everything in it: leads, campaigns, emails, replies, inboxes, its plan and its client logins. It can't be undone.`,
+      fields: [
+        {
+          name: "confirm",
+          label: "Type DELETE to confirm",
+          required: true,
+          placeholder: "DELETE",
+        },
+      ],
+      submitLabel: "Delete for good",
+      submit: async (input) => {
+        const result = await act({
+          action: "delete-organization",
+          workspaceId: organization.workspaceId,
+          confirm: text(input.confirm),
+        });
+        setSelected((current) =>
+          current === text(organization.workspaceId) ? "" : current,
+        );
+        return result;
+      },
+    });
+  }
   function addBusiness() {
     setDialog({
       title: "Add a client business",
@@ -853,6 +880,13 @@ export default function AdminScreen() {
           onClick={() => changeAccess(organization)}
         >
           {organization.status === "ACTIVE" ? "Suspend" : "Activate"}
+        </button>
+        <button
+          role="menuitem"
+          className="adm-text-bad"
+          onClick={() => deleteClientDialog(organization)}
+        >
+          Delete client
         </button>
       </RowMenu>
     );

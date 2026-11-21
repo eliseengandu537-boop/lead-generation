@@ -15,6 +15,7 @@ import {
 import { campaignMailboxIds, dailyAllowance } from "./mail/rotation";
 import { isSendingProvider } from "./mail/provider";
 import { verificationConfigured } from "./research/verification";
+import { deleteClient } from "./client-removal";
 import {
   campaignPurposes,
   meetsQualification,
@@ -1832,6 +1833,8 @@ export async function adminWrite(input: unknown) {
     }))
   )
     throw new HttpError(404, "Organization not found");
+  if (envelope.action === "delete-organization")
+    return deleteClient(user.id, workspaceId, input);
   return controlDb.$transaction(async (transaction) => {
     if (envelope.action === "organization-status") {
       const { status } = z
