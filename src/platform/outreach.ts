@@ -1,4 +1,4 @@
-import type { Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { controlDb, db } from "@/lib/db";
 import { HttpError } from "@/lib/auth";
@@ -18,12 +18,17 @@ import {
 } from "./mail/permission";
 import { personalizeFollowup } from "./mail/content";
 import {
-  nicheSchema,
+  excluded,
+  laneFor,
+  laneSchema,
+  lanesOf,
   outreachSettings,
   nextSearch,
   placeholdersLeft,
   profileOf,
+  searchTargets,
   senderBusinessName,
+  type OutreachLane,
   type OutreachSettings,
 } from "./outreach-settings";
 
@@ -43,14 +48,21 @@ const titleCase = (value: string) =>
 /** What still stops the autopilot from running, in the order to fix it. */
 function startProblems(settings: OutreachSettings) {
   const problems: string[] = [];
-  if (!settings.niches.length) problems.push("Add at least one niche to email.");
-  if (!settings.subject.trim() || !settings.body.trim())
-    problems.push("Write the email subject and message.");
-  const left = placeholdersLeft(settings.subject, settings.body);
-  if (left.length)
-    problems.push(`Replace the placeholder ${left.map((field) => `{{${field}}}`).join(", ")} in the email.`);
-  if (!settings.replyTo.length)
-    problems.push("Add at least one sales rep email to receive replies.");
+  const lanes = lanesOf(settings);
+  if (!lanes.length) problems.push("Add a campaign: who to email, and the email.");
+  for (const lane of lanes) {
+    const where = lanes.length > 1 ? `In "${lane.name}": ` : "";
+    if (!lane.niches.length) problems.push(`${where}Add at least one niche to email.`);
+    if (!lane.subject.trim() || !lane.body.trim())
+      problems.push(`${where}Write the email subject and message.`);
+    const left = placeholdersLeft(lane.subject, lane.body);
+    if (left.length)
+      problems.push(
+        `${where}Replace the placeholder ${left.map((field) => `{{${field}}}`).join(", ")} in the email.`,
+      );
+    if (!lane.replyTo.length && !settings.replyTo.length)
+      problems.push(`${where}Add at least one sales rep email to receive replies.`);
+  }
   return problems;
 }
 
@@ -93,11 +105,9 @@ export async function outreachRead(workspaceId: string) {
     db.platformMailMessage.count({ where: { workspaceId, direction: "INBOUND" } }),
     db.platformLead.count({ where: { workspaceId, eligibility: "CONSENTED" } }),
     db.platformMailEvent.count({ where: { workspaceId, kind: "BOUNCE" } }),
-    settings.campaignId
-      ? db.platformCampaignRecipient.count({
-          where: { workspaceId, campaignId: settings.campaignId, status: "QUEUED" },
-        })
-      : 0,
+    db.platformCampaignRecipient.count({
+      where: { workspaceId, status: "QUEUED", campaign: { target: { path: ["autopilot"], equals: true } } },
+    }),
     db.platformMailbox.findMany({
       where: { workspaceId },
       select: { id: true, email: true, status: true },
@@ -140,6 +150,16 @@ export async function outreachRead(workspaceId: string) {
     !!subscription &&
     ["TRIAL", "ACTIVE"].includes(subscription.status) &&
     (!subscription.periodEnd || subscription.periodEnd > now);
+  const lanes = lanesOf(settings);
+  const laneCampaigns = lanes.map((lane) => lane.campaignId).filter((id): id is string => !!id);
+  const perCampaign = laneCampaigns.length
+    ? await db.$queryRaw<{ campaignId: string; sent: number; replies: number; queued: number }[]>`
+        SELECT c.id AS "campaignId",
+          (SELECT count(*)::int FROM "PlatformMailMessage" m WHERE m."campaignId" = c.id AND m.direction = 'OUTBOUND' AND m.status = 'ACCEPTED') AS sent,
+          (SELECT count(*)::int FROM "PlatformMailMessage" m WHERE m."campaignId" = c.id AND m.direction = 'INBOUND') AS replies,
+          (SELECT count(*)::int FROM "PlatformCampaignRecipient" r WHERE r."campaignId" = c.id AND r.status = 'QUEUED') AS queued
+        FROM "PlatformCampaign" c WHERE c."workspaceId" = ${workspaceId} AND c.id IN (${Prisma.join(laneCampaigns)})`
+    : [];
   const days = new Map(daily.map((row) => [row.day, row]));
   const series = Array.from({ length: 30 }, (_, index) => {
     const day = new Intl.DateTimeFormat("en-CA", {
@@ -154,10 +174,17 @@ export async function outreachRead(workspaceId: string) {
     },
     settings: {
       enabled: settings.enabled,
-      niches: settings.niches,
+      lanes: lanes.map((lane) => {
+        const counts = perCampaign.find((row) => row.campaignId === lane.campaignId);
+        return {
+          ...lane,
+          stats: { sent: counts?.sent ?? 0, replies: counts?.replies ?? 0, queued: counts?.queued ?? 0 },
+        };
+      }),
       replyTo: settings.replyTo,
-      subject: settings.subject,
-      body: settings.body,
+      exclude: settings.exclude,
+      sendStartHour: settings.sendStartHour,
+      sendEndHour: settings.sendEndHour,
       dailyLimit: settings.dailyLimit,
       approvedAt: settings.approvedAt,
       lastFind: settings.lastFind,
@@ -207,13 +234,21 @@ export async function outreachRead(workspaceId: string) {
 const saveSchema = z
   .object({
     action: z.enum(["save", "start", "pause"]),
-    niches: z.array(nicheSchema).max(10).optional(),
-    replyTo: z.array(z.email()).max(5).optional(),
-    subject: z.string().trim().max(200).optional(),
-    body: z.string().max(5000).optional(),
-    dailyLimit: z.number().int().min(1).max(200).optional(),
+    lanes: z.array(laneSchema.omit({ campaignId: true })).max(8).optional(),
+    exclude: z.array(z.string().trim().min(2).max(40)).max(30).optional(),
+    sendStartHour: z.number().int().min(0).max(23).optional(),
+    sendEndHour: z.number().int().min(1).max(24).optional(),
+    dailyLimit: z.number().int().min(1).max(50).optional(),
   })
-  .strict();
+  .strict()
+  .refine(
+    (input) => (input.sendStartHour ?? 0) < (input.sendEndHour ?? 24),
+    "Sending must start before it ends.",
+  )
+  .refine(
+    (input) => new Set((input.lanes ?? []).map((lane) => lane.id)).size === (input.lanes ?? []).length,
+    "Each campaign needs its own id.",
+  );
 
 export async function outreachWrite(workspaceId: string, raw: unknown) {
   const { user, organization, workspace } = await organizationAccess(workspaceId, true);
@@ -223,12 +258,27 @@ export async function outreachWrite(workspaceId: string, raw: unknown) {
     throw new HttpError(403, "This demo workspace is read-only.");
   const input = saveSchema.parse(raw);
   let settings = outreachSettings(organization.outreach);
+  if (input.lanes) {
+    // Campaigns keep their running email campaign by id; older single-campaign fields are retired.
+    const before = lanesOf(settings);
+    settings = {
+      ...settings,
+      lanes: input.lanes.map((lane) => ({
+        ...lane,
+        replyTo: [...new Set(lane.replyTo.map((value) => value.toLowerCase()))],
+        campaignId: before.find((item) => item.id === lane.id)?.campaignId ?? null,
+      })),
+      niches: [],
+      subject: "",
+      body: "",
+      campaignId: null,
+    };
+  }
   settings = {
     ...settings,
-    ...(input.niches ? { niches: input.niches } : {}),
-    ...(input.replyTo ? { replyTo: [...new Set(input.replyTo.map((value) => value.toLowerCase()))] } : {}),
-    ...(input.subject !== undefined ? { subject: input.subject } : {}),
-    ...(input.body !== undefined ? { body: input.body } : {}),
+    ...(input.exclude ? { exclude: [...new Set(input.exclude.map((word) => word.toLowerCase()))] } : {}),
+    ...(input.sendStartHour !== undefined ? { sendStartHour: input.sendStartHour } : {}),
+    ...(input.sendEndHour !== undefined ? { sendEndHour: input.sendEndHour } : {}),
     ...(input.dailyLimit ? { dailyLimit: input.dailyLimit } : {}),
   };
   const now = new Date();
@@ -260,7 +310,7 @@ export async function outreachWrite(workspaceId: string, raw: unknown) {
           ? {
               profileApprovedAt: now,
               profileApprovedBy: user.id,
-              targetCriteria: settings.niches
+              targetCriteria: searchTargets(lanesOf(settings))
                 .map((item) => `${item.niche} in ${item.area}`)
                 .join("; ")
                 .slice(0, 2000),
@@ -283,8 +333,8 @@ export async function outreachWrite(workspaceId: string, raw: unknown) {
       },
     });
   });
-  if (settings.campaignId || input.action === "start")
-    await syncCampaign(
+  if (settings.approvedAt || input.action === "start")
+    await syncCampaigns(
       workspaceId,
       settings,
       senderBusinessName(organization.profile, workspace.name),
@@ -292,8 +342,12 @@ export async function outreachWrite(workspaceId: string, raw: unknown) {
   return { message };
 }
 
-/** Keeps the client's single autopilot campaign in line with the settings and live inboxes. */
-async function syncCampaign(
+/**
+ * Keeps one email campaign per autopilot campaign in line with the settings and live inboxes.
+ * Campaigns that were removed are paused and their unsent emails withdrawn, so those businesses
+ * can be picked up by the campaign they now belong to.
+ */
+async function syncCampaigns(
   workspaceId: string,
   settings: OutreachSettings,
   businessName: string,
@@ -304,76 +358,100 @@ async function syncCampaign(
     orderBy: { createdAt: "asc" },
   });
   const running = settings.enabled && !!settings.approvedAt && !!settings.approvedBy;
-  const data = {
-    name: "Outreach autopilot",
-    purpose: "PERMISSION_REQUEST",
-    subject: settings.subject,
-    body: settings.body,
-    steps: [] as Prisma.InputJsonValue,
-    dailyLimit: settings.dailyLimit,
-    mailboxId: live[0]?.id ?? null,
-    extraMailboxIds: live.slice(1).map((box) => box.id),
-    target: { autopilot: true, niches: settings.niches } as Prisma.InputJsonValue,
-    status: running ? "RUNNING" : "PAUSED",
-    approvedAt: running ? new Date(settings.approvedAt!) : null,
-    approvedBy: running ? settings.approvedBy : null,
-    sendStartHour: 8,
-    sendEndHour: 17,
-    sendWeekdays: [1, 2, 3, 4, 5],
-  };
-  const existing = settings.campaignId
-    ? await db.platformCampaign.findFirst({
-        where: { workspaceId, id: settings.campaignId },
-        select: { id: true },
-      })
-    : null;
-  const campaign = existing
-    ? await db.platformCampaign.update({ where: { id: existing.id }, data })
-    : await db.platformCampaign.create({ data: { ...data, workspaceId } });
-  if (!existing) {
+  const lanes = lanesOf(settings);
+  const result = new Map<string, { campaignId: string; live: number; dailyLimit: number }>();
+  const ids: (string | null)[] = [];
+  for (const lane of lanes) {
+    const inboxes = lane.mailboxIds.length
+      ? live.filter((box) => lane.mailboxIds.includes(box.id))
+      : live;
+    const dailyLimit = Math.max(1, inboxes.length) * settings.dailyLimit;
+    const data = {
+      name: lanes.length > 1 || lane.id !== "main" ? `Outreach · ${lane.name}` : "Outreach autopilot",
+      purpose: "PERMISSION_REQUEST",
+      subject: lane.subject,
+      body: lane.body,
+      steps: [] as Prisma.InputJsonValue,
+      dailyLimit,
+      mailboxId: inboxes[0]?.id ?? null,
+      extraMailboxIds: inboxes.slice(1).map((box) => box.id),
+      target: {
+        autopilot: true,
+        lane: lane.id,
+        niches: lane.niches,
+        areas: lane.areas,
+      } as Prisma.InputJsonValue,
+      status: running ? "RUNNING" : "PAUSED",
+      approvedAt: running ? new Date(settings.approvedAt!) : null,
+      approvedBy: running ? settings.approvedBy : null,
+      sendStartHour: settings.sendStartHour,
+      sendEndHour: settings.sendEndHour,
+      sendWeekdays: [1, 2, 3, 4, 5],
+    };
+    const existing = lane.campaignId
+      ? await db.platformCampaign.findFirst({
+          where: { workspaceId, id: lane.campaignId },
+          select: { id: true },
+        })
+      : null;
+    const campaign = existing
+      ? await db.platformCampaign.update({ where: { id: existing.id }, data })
+      : await db.platformCampaign.create({ data: { ...data, workspaceId } });
+    ids.push(campaign.id);
+    result.set(lane.id, { campaignId: campaign.id, live: inboxes.length, dailyLimit });
+    // Emails still waiting to go out pick up the latest wording.
+    const waiting = await db.platformCampaignRecipient.findMany({
+      where: { workspaceId, campaignId: campaign.id, status: "QUEUED", step: 0 },
+      select: { id: true, lead: true },
+    });
+    for (const recipient of waiting)
+      await db.platformCampaignRecipient.update({
+        where: { id: recipient.id },
+        data: {
+          subject: personalizeFollowup(lane.subject, recipient.lead),
+          body: withPermissionNotice(personalizeFollowup(lane.body, recipient.lead), businessName),
+          ...(running ? { approvedAt: data.approvedAt, approvedBy: data.approvedBy } : {}),
+        },
+      });
+  }
+  // Save new campaign ids (only when something changed, to keep each round cheap).
+  if (lanes.some((lane, index) => lane.campaignId !== ids[index])) {
     const organization = await db.platformOrganization.findUniqueOrThrow({
       where: { workspaceId },
       select: { outreach: true },
     });
-    await db.platformOrganization.update({
-      where: { workspaceId },
-      data: {
-        outreach: asJson({
-          ...outreachSettings(organization.outreach),
-          campaignId: campaign.id,
-        }),
-      },
+    const stored = outreachSettings(organization.outreach);
+    const updated = settings.lanes.length
+      ? { ...stored, lanes: stored.lanes.map((lane) => ({ ...lane, campaignId: result.get(lane.id)?.campaignId ?? lane.campaignId })) }
+      : { ...stored, campaignId: result.get("main")?.campaignId ?? stored.campaignId };
+    await db.platformOrganization.update({ where: { workspaceId }, data: { outreach: asJson(updated) } });
+  }
+  // Autopilot campaigns no longer in the settings: pause and withdraw their unsent emails.
+  const orphans = await db.platformCampaign.findMany({
+    where: {
+      workspaceId,
+      target: { path: ["autopilot"], equals: true },
+      id: { notIn: [...result.values()].map((item) => item.campaignId) },
+    },
+    select: { id: true, status: true },
+  });
+  for (const orphan of orphans) {
+    if (orphan.status !== "PAUSED")
+      await db.platformCampaign.update({ where: { id: orphan.id }, data: { status: "PAUSED" } });
+    await db.platformCampaignRecipient.deleteMany({
+      where: { workspaceId, campaignId: orphan.id, status: "QUEUED", step: 0 },
     });
   }
-  // Emails still waiting to go out pick up the latest wording.
-  const waiting = await db.platformCampaignRecipient.findMany({
-    where: { workspaceId, campaignId: campaign.id, status: "QUEUED", step: 0 },
-    select: { id: true, lead: true },
-  });
-  for (const recipient of waiting)
-    await db.platformCampaignRecipient.update({
-      where: { id: recipient.id },
-      data: {
-        subject: personalizeFollowup(settings.subject, recipient.lead),
-        body: withPermissionNotice(
-          personalizeFollowup(settings.body, recipient.lead),
-          businessName,
-        ),
-        ...(running
-          ? { approvedAt: data.approvedAt, approvedBy: data.approvedBy }
-          : {}),
-      },
-    });
-  return { campaignId: campaign.id, live: live.length };
+  return result;
 }
 
 /** Step 1: find businesses in the next niche (public Overture Maps listings with a website). */
 async function findBusinesses(
   workspaceId: string,
   settings: OutreachSettings,
+  niche: { niche: string; area: string; lane: string },
   provider: typeof fetchWebsiteProspects,
 ) {
-  const niche = settings.niches[settings.nicheCursor % settings.niches.length];
   const existing = await db.platformLead.findMany({
     where: { workspaceId },
     select: { sourceRecordId: true, email: true },
@@ -398,11 +476,16 @@ async function findBusinesses(
   }
   const now = new Date();
   const data: Prisma.PlatformLeadCreateManyInput[] = [];
+  let skipped = 0;
   for (const candidate of candidates) {
     if (ids.has(candidate.sourceRecordId) || (!candidate.website && !candidate.email))
       continue;
     const email = candidate.email && !emails.has(candidate.email) ? candidate.email : null;
     const category = String((candidate.evidence as { category?: unknown }).category ?? candidate.industry);
+    if (excluded(settings.exclude, candidate.company, category)) {
+      skipped++;
+      continue;
+    }
     data.push({
       workspaceId,
       company: candidate.company,
@@ -421,7 +504,9 @@ async function findBusinesses(
       qualificationCategory: AUTOPILOT,
       qualifiedAt: now,
       qualificationExplanation: `Found by the outreach autopilot: listed as "${category.replaceAll("_", " ")}" in public business listings for ${niche.area}, matching the niche "${niche.niche}".`,
-      research: { autopilot: { niche: niche.niche, area: niche.area, foundAt: now.toISOString() } },
+      research: {
+        autopilot: { niche: niche.niche, area: niche.area, lane: niche.lane, foundAt: now.toISOString() },
+      },
       notes: "Found by the outreach autopilot from public business listings (Overture Maps). The email comes from the business's own website.",
     });
     ids.add(candidate.sourceRecordId);
@@ -436,6 +521,7 @@ async function findBusinesses(
     area: niche.area,
     found: candidates.length,
     added,
+    ...(skipped ? { skipped } : {}),
     ...(error ? { error } : {}),
   };
 }
@@ -525,19 +611,30 @@ async function checkEmails(workspaceId: string, limit: number) {
   return checked;
 }
 
-/** Step 4: queue the email to checked leads that have never been asked, up to two days' worth. */
+/**
+ * Step 4: queue each campaign's email to checked businesses that belong to it and have never been
+ * asked, up to two days' worth per campaign. Only campaigns with a live inbox queue anything.
+ */
 async function queueEmails(
   workspaceId: string,
   settings: OutreachSettings,
-  campaignId: string,
+  campaigns: Map<string, { campaignId: string; live: number; dailyLimit: number }>,
   businessName: string,
   minimumScore: number,
 ) {
-  const queued = await db.platformCampaignRecipient.count({
-    where: { workspaceId, campaignId, status: "QUEUED" },
-  });
-  const room = Math.max(0, settings.dailyLimit * 2 - queued);
-  if (!room) return 0;
+  const lanes = lanesOf(settings);
+  const rooms = new Map<string, number>();
+  for (const lane of lanes) {
+    const campaign = campaigns.get(lane.id);
+    if (!campaign?.live) continue;
+    const queued = await db.platformCampaignRecipient.count({
+      where: { workspaceId, campaignId: campaign.campaignId, status: "QUEUED" },
+    });
+    const room = Math.max(0, campaign.dailyLimit * 2 - queued);
+    if (room) rooms.set(lane.id, room);
+  }
+  if (!rooms.size) return 0;
+  const totalRoom = [...rooms.values()].reduce((sum, value) => sum + value, 0);
   const leads = await db.platformLead.findMany({
     where: {
       workspaceId,
@@ -552,7 +649,7 @@ async function queueEmails(
       recipients: { none: {} },
     },
     orderBy: { createdAt: "asc" },
-    take: room * 2,
+    take: Math.min(2000, totalRoom * 4),
   });
   if (!leads.length) return 0;
   const [asked, suppressed] = await Promise.all([
@@ -563,29 +660,32 @@ async function queueEmails(
     }),
   ]);
   const blockedEmails = new Set(suppressed.map((row) => row.email));
-  const ready = leads
-    .filter(
-      (lead) =>
-        !blockedEmails.has(lead.email!.toLowerCase()) &&
-        !permissionRequestBlocker(lead, minimumScore, asked.has(lead.id)),
-    )
-    .slice(0, room);
-  if (!ready.length) return 0;
   const approvedAt = new Date(settings.approvedAt!);
-  return (
-    await db.platformCampaignRecipient.createMany({
-      data: ready.map((lead) => ({
-        workspaceId,
-        campaignId,
-        leadId: lead.id,
-        subject: personalizeFollowup(settings.subject, lead),
-        body: withPermissionNotice(personalizeFollowup(settings.body, lead), businessName),
-        approvedAt,
-        approvedBy: settings.approvedBy,
-      })),
-      skipDuplicates: true,
-    })
-  ).count;
+  const data: Prisma.PlatformCampaignRecipientCreateManyInput[] = [];
+  for (const lead of leads) {
+    if (
+      blockedEmails.has(lead.email!.toLowerCase()) ||
+      excluded(settings.exclude, lead.company) ||
+      permissionRequestBlocker(lead, minimumScore, asked.has(lead.id))
+    )
+      continue;
+    const found = ((lead.research ?? {}) as { autopilot?: Record<string, unknown> }).autopilot;
+    const lane: OutreachLane | null = laneFor(lanes, found);
+    const room = lane ? (rooms.get(lane.id) ?? 0) : 0;
+    if (!lane || !room) continue;
+    rooms.set(lane.id, room - 1);
+    data.push({
+      workspaceId,
+      campaignId: campaigns.get(lane.id)!.campaignId,
+      leadId: lead.id,
+      subject: personalizeFollowup(lane.subject, lead),
+      body: withPermissionNotice(personalizeFollowup(lane.body, lead), businessName),
+      approvedAt,
+      approvedBy: settings.approvedBy,
+    });
+  }
+  if (!data.length) return 0;
+  return (await db.platformCampaignRecipient.createMany({ data, skipDuplicates: true })).count;
 }
 
 /** One autopilot round for every running client. Runs on the local worker. */
@@ -627,14 +727,20 @@ export async function outreachTick(provider = fetchWebsiteProspects) {
           },
         });
         let lastFind = null;
-        // Search again every 6 hours, but not while 300 found businesses still wait.
+        const targets = searchTargets(lanesOf(state));
+        // Search the next niche and area every 2 hours, but not while 300 found businesses still wait.
         if (
-          state.niches.length &&
+          targets.length &&
           waiting < 300 &&
           (!state.nextFindAt || new Date(state.nextFindAt) <= new Date())
         ) {
           const previous = state.lastFind;
-          lastFind = await findBusinesses(workspaceId, state, provider);
+          lastFind = await findBusinesses(
+            workspaceId,
+            state,
+            targets[state.nicheCursor % targets.length],
+            provider,
+          );
           state = { ...state, ...nextSearch(state.nicheCursor, previous, lastFind), lastFind };
           await db.platformOrganization.update({
             where: { workspaceId },
@@ -643,11 +749,10 @@ export async function outreachTick(provider = fetchWebsiteProspects) {
         }
         const emailsFound = await findEmails(workspaceId, 8);
         const emailsChecked = await checkEmails(workspaceId, 20);
-        const { campaignId, live } = await syncCampaign(workspaceId, state, businessName);
-        const queued = live
-          ? await queueEmails(workspaceId, state, campaignId, businessName, threshold)
-          : 0;
-        return { workspaceId, lastFind, emailsFound, emailsChecked, queued, liveInboxes: live };
+        const campaigns = await syncCampaigns(workspaceId, state, businessName);
+        const queued = await queueEmails(workspaceId, state, campaigns, businessName, threshold);
+        const liveInboxes = Math.max(0, ...[...campaigns.values()].map((item) => item.live));
+        return { workspaceId, lastFind, emailsFound, emailsChecked, queued, liveInboxes };
       }),
     );
   }

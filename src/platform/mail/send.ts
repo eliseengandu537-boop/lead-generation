@@ -23,7 +23,11 @@ import { mailboxAccess, providerName, type MailboxAccess } from "./provider";
 import { pauseUnsafeCampaign } from "./events";
 import { withinSendingWindow } from "./schedule";
 import { personalizeFollowup, unfilledEmailFields } from "./content";
-import { outreachReplyTo } from "../outreach-settings";
+import {
+  outreachReplyTo,
+  senderBusinessName,
+  withSender,
+} from "../outreach-settings";
 import {
   meetsQualification,
   permissionAskedLeadIds,
@@ -110,12 +114,17 @@ export async function sendCampaignMessage(
         throw new Error(
           "Approved email content and recipient address are required",
         );
-      const subject =
+      // {{sender}} is the first name of the inbox this email goes out from ("I'm Warren").
+      const subject = withSender(
         step === 0
           ? selected.subject
-          : personalizeFollowup(selected.subject, lead);
-      const text =
-        step === 0 ? selected.body : personalizeFollowup(selected.body, lead);
+          : personalizeFollowup(selected.subject, lead),
+        mailbox.email,
+      );
+      const text = withSender(
+        step === 0 ? selected.body : personalizeFollowup(selected.body, lead),
+        mailbox.email,
+      );
       const missing = unfilledEmailFields(subject, text);
       if (missing.length)
         throw new Error(`Complete email fields before sending: ${missing.join(", ")}.`);
@@ -332,7 +341,7 @@ export async function sendCampaignMessage(
         );
       const id = randomUUID(),
         unsubscribeUrl = unsubscribeLink(id);
-      const body = `${text}\n\n${workspace.name}\n${organization.websiteUrl}\nUnsubscribe: ${unsubscribeUrl}`;
+      const body = `${text}\n\n${senderBusinessName(organization.profile, workspace.name)}\n${organization.websiteUrl}\nUnsubscribe: ${unsubscribeUrl}`;
       const message = await tx.platformMailMessage.create({
         data: {
           id,
@@ -421,15 +430,23 @@ async function deliverReservedMessage(
       : null;
     // Campaign emails can send replies to the client's sales reps. The sending inbox stays
     // in Reply-To too, so every reply is still counted and consent from a YES is recorded.
+    // Each autopilot campaign can have its own reps (e.g. Western Cape replies to the Cape team).
     const reps =
       message.campaignId && !message.replyToMessageId
-        ? outreachReplyTo(
-            (
-              await db.platformOrganization.findUnique({
-                where: { workspaceId: message.workspaceId },
-                select: { outreach: true },
-              })
-            )?.outreach,
+        ? await Promise.all([
+            db.platformOrganization.findUnique({
+              where: { workspaceId: message.workspaceId },
+              select: { outreach: true },
+            }),
+            db.platformCampaign.findFirst({
+              where: { workspaceId: message.workspaceId, id: message.campaignId },
+              select: { target: true },
+            }),
+          ]).then(([organization, campaign]) =>
+            outreachReplyTo(
+              organization?.outreach,
+              (campaign?.target as { lane?: unknown } | null)?.lane,
+            ),
           )
         : [];
     const mail = {

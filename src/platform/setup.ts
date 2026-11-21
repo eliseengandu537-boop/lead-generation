@@ -1,5 +1,5 @@
 import { controlDb, db } from "@/lib/db";
-import { outreachSettings, placeholdersLeft } from "./outreach-settings";
+import { lanesOf, outreachSettings, placeholdersLeft } from "./outreach-settings";
 
 export type SetupStep = {
   id: "plan" | "niches" | "email" | "reps" | "inbox" | "started";
@@ -43,10 +43,17 @@ export async function setupStatus(
     ["TRIAL", "ACTIVE"].includes(subscription.status) &&
     (!subscription.periodEnd || subscription.periodEnd > now);
   const live = mailboxes.filter((box) => box.status === "LIVE_ENABLED").length;
+  const lanes = lanesOf(settings);
   const emailReady =
-    !!settings.subject.trim() &&
-    !!settings.body.trim() &&
-    !placeholdersLeft(settings.subject, settings.body).length;
+    lanes.length > 0 &&
+    lanes.every(
+      (lane) =>
+        !!lane.subject.trim() &&
+        !!lane.body.trim() &&
+        !placeholdersLeft(lane.subject, lane.body).length,
+    );
+  const reps = [...new Set(lanes.flatMap((lane) => (lane.replyTo.length ? lane.replyTo : settings.replyTo)))];
+  const lanesWithoutReps = lanes.filter((lane) => !lane.replyTo.length && !settings.replyTo.length);
   const steps: SetupStep[] = [
     {
       id: "plan",
@@ -66,9 +73,11 @@ export async function setupStatus(
     {
       id: "niches",
       label: "Choose who to email",
-      done: settings.niches.length > 0,
-      detail: settings.niches.length
-        ? settings.niches.map((item) => `${item.niche} · ${item.area}`).join(", ")
+      done: lanes.some((lane) => lane.niches.length > 0),
+      detail: lanes.length
+        ? lanes
+            .map((lane) => `${lane.niches.join(", ") || "no niche"} · ${lane.areas.length ? lane.areas.join(", ") : "all of South Africa"}`)
+            .join("; ")
         : "Add the kinds of businesses and areas to email.",
       view: "outreach",
     },
@@ -76,15 +85,17 @@ export async function setupStatus(
       id: "email",
       label: "Write the email",
       done: emailReady,
-      detail: emailReady ? settings.subject : "Write the subject and message.",
+      detail: emailReady
+        ? lanes.map((lane) => lane.subject).join(" · ")
+        : "Write the subject and message for each campaign.",
       view: "outreach",
     },
     {
       id: "reps",
       label: "Add the sales reps",
-      done: settings.replyTo.length > 0,
-      detail: settings.replyTo.length
-        ? `Replies go to ${settings.replyTo.join(", ")}.`
+      done: lanes.length > 0 && !lanesWithoutReps.length,
+      detail: reps.length
+        ? `Replies go to ${reps.join(", ")}.`
         : "Add who should get the replies.",
       view: "outreach",
     },

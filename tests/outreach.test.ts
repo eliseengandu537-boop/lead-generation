@@ -7,10 +7,16 @@ import {
 } from "../src/platform/mail/permission";
 import {
   outreachReplyTo,
+  excluded,
+  laneFor,
+  lanesOf,
   nextSearch,
   outreachSettings,
   placeholdersLeft,
+  searchTargets,
   senderBusinessName,
+  senderFirstName,
+  withSender,
 } from "../src/platform/outreach-settings";
 
 const mail = {
@@ -87,9 +93,70 @@ test("a failed business search retries the same area once in 30 minutes, then mo
   const now = Date.UTC(2026, 10, 21, 12);
   const wc = { niche: "forklift", area: "Western Cape" };
   const ok = nextSearch(1, null, { ...wc }, now);
-  assert.deepEqual(ok, { nicheCursor: 2, nextFindAt: new Date(now + 6 * 3600000).toISOString() });
+  assert.deepEqual(ok, { nicheCursor: 2, nextFindAt: new Date(now + 2 * 3600000).toISOString() });
   const retry = nextSearch(1, { niche: "forklift", area: "Gauteng" }, { ...wc, error: "Interrupted" }, now);
   assert.deepEqual(retry, { nicheCursor: 1, nextFindAt: new Date(now + 30 * 60000).toISOString() });
   const moveOn = nextSearch(1, { ...wc, error: "Interrupted" }, { ...wc, error: "Interrupted" }, now);
   assert.equal(moveOn.nicheCursor, 2);
+});
+
+test("older single-campaign settings read as one campaign called Main", () => {
+  const settings = outreachSettings({
+    niches: [{ niche: "forklift", area: "Gauteng" }, { niche: "forklift", area: "Western Cape" }],
+    replyTo: ["gary@dcbspares.co.za"],
+    subject: "forklift parts for {{company}}",
+    body: "Hi",
+    campaignId: "camp-1",
+  });
+  const [lane] = lanesOf(settings);
+  assert.equal(lanesOf(settings).length, 1);
+  assert.deepEqual(
+    { id: lane.id, niches: lane.niches, areas: lane.areas, replyTo: lane.replyTo, campaignId: lane.campaignId },
+    { id: "main", niches: ["forklift"], areas: ["Gauteng", "Western Cape"], replyTo: ["gary@dcbspares.co.za"], campaignId: "camp-1" },
+  );
+  assert.deepEqual(lanesOf(outreachSettings({})), []);
+});
+
+test("Western Cape businesses go to the Cape campaign and its reps; the rest to head office", () => {
+  const lanes = lanesOf(
+    outreachSettings({
+      lanes: [
+        { id: "fl-wc", name: "Forklift · WC", niches: ["forklift"], areas: ["Western Cape"], replyTo: ["warren@dcbspares.co.za", "shane@dcbspares.co.za"], subject: "s", body: "b" },
+        { id: "fl-nat", name: "Forklift · Rest", niches: ["forklift"], areas: ["Gauteng", "KwaZulu-Natal"], replyTo: ["gary@dcbspares.co.za"], subject: "s", body: "b" },
+        { id: "ae", name: "Auto electricians", niches: ["auto electrician", "mechanic"], areas: [], replyTo: [], subject: "s", body: "b" },
+      ],
+    }),
+  );
+  assert.deepEqual(
+    searchTargets(lanes).map((t) => `${t.niche}/${t.area}/${t.lane}`),
+    ["forklift/Western Cape/fl-wc", "forklift/Gauteng/fl-nat", "forklift/KwaZulu-Natal/fl-nat", "auto electrician/South Africa/ae", "mechanic/South Africa/ae"],
+  );
+  assert.equal(laneFor(lanes, { niche: "Forklift", area: "western cape" })?.id, "fl-wc");
+  assert.equal(laneFor(lanes, { niche: "forklift", area: "Gauteng" })?.id, "fl-nat");
+  assert.equal(laneFor(lanes, { lane: "ae", niche: "forklift", area: "Gauteng" })?.id, "ae", "where it was found wins");
+  assert.equal(laneFor(lanes, { niche: "plumber", area: "Gauteng" }), null, "no campaign, no email");
+});
+
+test("replies go to the campaign's own reps, else the client's general list", async () => {
+  const { outreachReplyTo } = await import("../src/platform/outreach-settings");
+  const raw = {
+    replyTo: ["sales@dcbspares.co.za"],
+    lanes: [
+      { id: "wc", name: "WC", niches: ["forklift"], replyTo: ["warren@dcbspares.co.za"], subject: "s", body: "b" },
+      { id: "nat", name: "NAT", niches: ["forklift"], replyTo: [], subject: "s", body: "b" },
+    ],
+  };
+  assert.deepEqual(outreachReplyTo(raw, "wc"), ["warren@dcbspares.co.za"]);
+  assert.deepEqual(outreachReplyTo(raw, "nat"), ["sales@dcbspares.co.za"]);
+  assert.deepEqual(outreachReplyTo(raw, undefined), ["sales@dcbspares.co.za"]);
+});
+
+test("{{sender}} becomes the sending inbox's first name; skip words match names", () => {
+  assert.equal(senderFirstName("warren@dcbspares.com"), "Warren");
+  assert.equal(senderFirstName("gary.basel@dcbspares.com"), "Gary");
+  assert.equal(withSender("I'm {{sender}} from DCB. {{ sender }}", "hans@dcbspares.com"), "I'm Hans from DCB. Hans");
+  assert.deepEqual(placeholdersLeft("Hi {{company}}", "I'm {{sender}}"), []);
+  assert.ok(excluded(["training", "battery"], "Forklift Training Academy"));
+  assert.ok(excluded(["battery"], "Acme", "forklift_battery_supplier"));
+  assert.ok(!excluded(["training"], "Fred's Forklift and Plant Hire"));
 });

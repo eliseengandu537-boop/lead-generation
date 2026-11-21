@@ -700,6 +700,184 @@
   font-style: normal;
   font-weight: 400;
 }
+.ws-v2 .ow-lanes {
+  display: grid;
+  gap: 12px;
+}
+.ws-v2 .ow-lane {
+  display: grid;
+  gap: 18px;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+}
+.ws-v2 .ow-lane.is-open {
+  border-color: var(--line-strong);
+  box-shadow: 0 1px 2px rgb(15 23 42 / 0.05);
+}
+.ws-v2 .ow-lane > header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+.ws-v2 .ow-lane-toggle {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 10px;
+  min-width: 0;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ink);
+  text-align: left;
+}
+.ws-v2 .ow-lane-toggle:hover {
+  background: none;
+}
+.ws-v2 .ow-lane-toggle svg {
+  flex: none;
+  color: var(--subtle);
+  transition: transform 0.15s ease;
+  transform: rotate(-90deg);
+}
+.ws-v2 .ow-lane.is-open .ow-lane-toggle svg {
+  transform: none;
+}
+.ws-v2 .ow-lane-toggle span {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.ws-v2 .ow-lane-toggle b {
+  color: var(--ink-strong);
+  font-size: 14px;
+}
+.ws-v2 .ow-lane-toggle small {
+  overflow: hidden;
+  color: var(--subtle);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ws-v2 .ow-lane-stats {
+  flex: none;
+  color: var(--subtle);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.ws-v2 .ow-lane-tools {
+  display: flex;
+  flex: none;
+  gap: 4px;
+}
+.ws-v2 .ow-provinces {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 6px 12px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.ws-v2 .ow-provinces legend {
+  margin-bottom: 6px;
+  padding: 0;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 550;
+}
+.ws-v2 .ow-provinces > input,
+.ws-v2 .ow-provinces > em,
+.ws-v2 .ow-provinces > .ow-add,
+.ws-v2 .ow-provinces > .ow-note,
+.ws-v2 .ow-provinces .ow-check-wide {
+  grid-column: 1 / -1;
+}
+.ws-v2 .ow-setup label.ow-check {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  margin: 0;
+  font-weight: 450;
+}
+.ws-v2 .ow-setup label.ow-check input {
+  flex: none;
+  width: 16px;
+  min-height: 0;
+  height: 16px;
+  margin: 0;
+  padding: 0;
+  accent-color: var(--accent);
+}
+.ws-v2 .ow-check .status {
+  margin-left: auto;
+}
+.ws-v2 .ow-provinces > em,
+.ws-v2 .ow-general em {
+  color: var(--subtle);
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 400;
+}
+.ws-v2 .ow-col-tight {
+  gap: 10px;
+}
+.ws-v2 .ow-general {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 18px 24px;
+  margin-top: 18px;
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
+}
+.ws-v2 .ow-general label {
+  display: grid;
+  align-content: start;
+  gap: 6px;
+  margin: 0;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 550;
+}
+.ws-v2 .ow-general input,
+.ws-v2 .ow-general select {
+  width: 100%;
+  min-height: 40px;
+  padding: 9px 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: 9px;
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 400;
+}
+.ws-v2 .ow-hours {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--subtle);
+  font-weight: 400;
+}
+@media (max-width: 900px) {
+  .ws-v2 .ow-general {
+    grid-template-columns: 1fr;
+  }
+  .ws-v2 .ow-lane > header {
+    flex-wrap: wrap;
+  }
+  .ws-v2 .ow-lane-stats {
+    order: 3;
+    width: 100%;
+    padding-left: 26px;
+  }
+}
 .ws-v2 .ow-actions {
   display: flex;
   justify-content: flex-end;

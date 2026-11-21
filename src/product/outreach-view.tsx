@@ -1,8 +1,9 @@
 "use client";
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import {
+  ChevronDown,
   CircleAlert,
-  Mail,
+  Copy,
   Pause,
   Play,
   Plus,
@@ -14,33 +15,72 @@ import { Badge, SectionHeading } from "./primitives";
 import { TrendChart } from "./charts";
 import { Panel, Stat, Stats, compact, percent } from "./admin-ui";
 import { permissionNotice } from "@/platform/mail/permission";
+import { PROVINCES, senderFirstName } from "@/platform/outreach-settings";
 import type { ViewProps } from "./views";
 
-const areas = [
-  "South Africa",
-  "Gauteng",
-  "Western Cape",
-  "KwaZulu-Natal",
-  "Eastern Cape",
-  "Free State",
-  "Limpopo",
-  "Mpumalanga",
-  "North West",
-  "Northern Cape",
-  "Johannesburg",
-  "Pretoria",
-  "Cape Town",
-  "Durban",
-  "Gqeberha",
-  "Bloemfontein",
-  "East London",
-  "Polokwane",
-  "Mbombela",
-  "Rustenburg",
-  "George",
-  "Kimberley",
-];
-type Niche = { niche: string; area: string };
+type Lane = {
+  id: string;
+  name: string;
+  niches: string;
+  areas: string[];
+  extraAreas: string;
+  mailboxIds: string[];
+  replyTo: string;
+  subject: string;
+  body: string;
+  stats: { sent: number; replies: number; queued: number };
+};
+
+const split = (value: string) =>
+  value
+    .split(/[\n,;]+/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+const newId = () => `c-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+const hours = Array.from({ length: 25 }, (_, hour) => hour);
+const isProvince = (area: string) => PROVINCES.some((item) => item.toLowerCase() === area.toLowerCase());
+
+function blankLane(businessName: string, index: number): Lane {
+  return {
+    id: newId(),
+    name: `Campaign ${index + 1}`,
+    niches: "",
+    areas: [],
+    extraAreas: "",
+    mailboxIds: [],
+    replyTo: "",
+    subject: "Quick question for {{company}}",
+    body: `Hi {{company}} team,\n\nI'm {{sender}} from ${businessName}. We {{what you offer, in one sentence}}.\n\nWould it help if I sent you more details? Just reply YES.`,
+    stats: { sent: 0, replies: 0, queued: 0 },
+  };
+}
+
+function fromSaved(item: Record<string, unknown>): Lane {
+  const areas = Array.isArray(item.areas) ? item.areas.map(String) : [];
+  const stats = object(item.stats);
+  return {
+    id: text(item.id, newId()),
+    name: text(item.name, "Campaign"),
+    niches: Array.isArray(item.niches) ? item.niches.map(String).join("\n") : "",
+    areas: areas.filter(isProvince),
+    extraAreas: areas.filter((area) => !isProvince(area)).join(", "),
+    mailboxIds: Array.isArray(item.mailboxIds) ? item.mailboxIds.map(String) : [],
+    replyTo: Array.isArray(item.replyTo) ? item.replyTo.map(String).join("\n") : "",
+    subject: text(item.subject, ""),
+    body: text(item.body, ""),
+    stats: { sent: number(stats.sent), replies: number(stats.replies), queued: number(stats.queued) },
+  };
+}
+
+function placeholdersIn(...content: string[]) {
+  return [
+    ...new Set(
+      [...content.join(" ").matchAll(/\{\{\s*([^{}]+?)\s*\}\}/g)]
+        .map((match) => match[1].trim())
+        .filter((field) => !["company", "name", "email", "industry", "sender"].includes(field)),
+    ),
+  ];
+}
 
 export function OutreachView({ data, organization, canManage, act, navigate }: ViewProps) {
   const settings = object(data.settings),
@@ -48,53 +88,53 @@ export function OutreachView({ data, organization, canManage, act, navigate }: V
     readiness = object(data.readiness),
     business = object(data.business);
   const businessName = text(business.name, organization.name);
-  const [niches, setNiches] = useState<Niche[]>(() => {
-    const saved = rows(settings.niches).map((item) => ({
-      niche: text(item.niche, ""),
-      area: text(item.area, ""),
-    }));
-    return saved.length ? saved : [{ niche: "", area: "Gauteng" }];
+  const mailboxes = rows(readiness.mailboxes);
+  const [lanes, setLanes] = useState<Lane[]>(() => {
+    const saved = rows(settings.lanes).map(fromSaved);
+    return saved.length ? saved : [blankLane(businessName, 0)];
   });
-  const [subject, setSubject] = useState(
-    text(settings.subject, "") || "Quick question for {{company}}",
-  );
-  const [body, setBody] = useState(
-    text(settings.body, "") ||
-      `Hi {{company}} team,\n\nI'm {{your name}} from ${businessName}. We {{what you offer, in one sentence}}.\n\nWould it help if I sent you more details? Just reply YES.`,
-  );
-  const [reps, setReps] = useState(
-    Array.isArray(settings.replyTo) ? settings.replyTo.map(String).join("\n") : "",
+  const [open, setOpen] = useState<string[]>(() => (lanes.length === 1 ? [lanes[0].id] : []));
+  const [exclude, setExclude] = useState(
+    Array.isArray(settings.exclude) ? settings.exclude.map(String).join(", ") : "",
   );
   const [dailyLimit, setDailyLimit] = useState(number(settings.dailyLimit) || 20);
+  const [startHour, setStartHour] = useState(
+    settings.sendStartHour === undefined ? 8 : number(settings.sendStartHour),
+  );
+  const [endHour, setEndHour] = useState(number(settings.sendEndHour) || 17);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const running = settings.enabled === true;
-  const mailboxes = rows(readiness.mailboxes);
   const lastFind = settings.lastFind ? object(settings.lastFind) : null;
-  const repList = reps
-    .split(/[\s,;]+/)
-    .map((value) => value.trim().toLowerCase())
-    .filter(Boolean);
-  const preview = useMemo(
-    () =>
-      `${body.replace(/\{\{\s*company\s*\}\}/g, "Example Workshop").trimEnd()}\n\n${permissionNotice(businessName)}`,
-    [body, businessName],
-  );
-  const placeholders = [
-    ...new Set(
-      [...`${subject} ${body}`.matchAll(/\{\{\s*([^{}]+?)\s*\}\}/g)]
-        .map((match) => match[1].trim())
-        .filter((field) => !["company", "name", "email", "industry"].includes(field)),
-    ),
-  ];
+  const liveBoxes = mailboxes.filter((box) => box.status === "LIVE_ENABLED");
+
+  const change = (id: string, patch: Partial<Lane>) =>
+    setLanes((current) => current.map((lane) => (lane.id === id ? { ...lane, ...patch } : lane)));
+  const toggleOpen = (id: string) =>
+    setOpen((current) => (current.includes(id) ? current.filter((item) => item !== id) : [...current, id]));
+  const addLane = (copy?: Lane) => {
+    const lane = copy
+      ? { ...copy, id: newId(), name: `${copy.name} (copy)`, stats: { sent: 0, replies: 0, queued: 0 } }
+      : blankLane(businessName, lanes.length);
+    setLanes((current) => [...current, lane]);
+    setOpen((current) => [...current, lane.id]);
+  };
+
   const payload = () => ({
-    niches: niches
-      .map((item) => ({ niche: item.niche.trim(), area: item.area.trim() }))
-      .filter((item) => item.niche.length >= 2 && item.area.length >= 2),
-    replyTo: repList,
-    subject: subject.trim(),
-    body,
+    lanes: lanes.map((lane, index) => ({
+      id: lane.id,
+      name: lane.name.trim() || `Campaign ${index + 1}`,
+      niches: split(lane.niches).filter((item) => item.length >= 2),
+      areas: [...lane.areas, ...split(lane.extraAreas)].filter((item) => item.length >= 2),
+      mailboxIds: lane.mailboxIds.filter((id) => mailboxes.some((box) => text(box.id) === id)),
+      replyTo: split(lane.replyTo).map((value) => value.toLowerCase()),
+      subject: lane.subject.trim(),
+      body: lane.body,
+    })),
+    exclude: split(exclude).filter((item) => item.length >= 2),
     dailyLimit,
+    sendStartHour: startHour,
+    sendEndHour: endHour,
   });
   async function send(action: "save" | "start" | "pause") {
     setBusy(true);
@@ -102,9 +142,13 @@ export function OutreachView({ data, organization, canManage, act, navigate }: V
     try {
       if (action === "pause") await act("outreach", { action });
       else {
-        const bad = repList.find((value) => !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value));
-        if (bad) throw new Error(`"${bad}" isn't a valid email address.`);
-        await act("outreach", { action, ...payload() });
+        const body = payload();
+        for (const lane of body.lanes) {
+          const bad = lane.replyTo.find((value) => !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value));
+          if (bad) throw new Error(`In "${lane.name}": "${bad}" isn't a valid email address.`);
+        }
+        if (startHour >= endHour) throw new Error("Sending must start before it ends.");
+        await act("outreach", { action, ...body });
       }
     } catch (problem) {
       setError((problem as Error).message);
@@ -112,6 +156,7 @@ export function OutreachView({ data, organization, canManage, act, navigate }: V
       setBusy(false);
     }
   }
+
   const warnings: { text: string; action?: { label: string; onClick?: () => void; href?: string } }[] = [];
   if (!readiness.plan)
     warnings.push({
@@ -125,66 +170,13 @@ export function OutreachView({ data, organization, canManage, act, navigate }: V
     });
   if (!readiness.emailChecker)
     warnings.push({
-      text: "Email checking isn't set up for your agency yet. Found emails wait here until it is, so the client's domain isn't hurt by bounces.",
+      text: "Email checking isn't set up for your agency yet. Found emails wait here until it is, so the sending domain isn't hurt by bounces.",
     });
   if (!readiness.liveSending)
     warnings.push({ text: "Live sending is switched off on the platform, so emails queue but don't go out." });
 
-  const repsSection = (
-    <section>
-      <h3>
-        <span>3</span> Replies go to
-      </h3>
-      <p className="muted">
-        Your client&apos;s sales reps. Every reply lands in their inbox, and it&apos;s counted here.
-      </p>
-      <textarea
-        aria-label="Sales rep emails"
-        rows={3}
-        placeholder={"sales@client.co.za\nrep@client.co.za"}
-        value={reps}
-        disabled={!canManage}
-        onChange={(event) => setReps(event.target.value)}
-      />
-      <p className="ow-note">One email per line, up to 5.</p>
-    </section>
-  );
-  const sendSection = (
-    <section>
-      <h3>
-        <span>4</span> Send from
-      </h3>
-      <p className="muted">The client&apos;s own inbox that the emails come from.</p>
-      {mailboxes.length ? (
-        <ul className="ow-inboxes">
-          {mailboxes.map((box) => (
-            <li key={text(box.id)}>
-              <Mail size={15} />
-              {text(box.email)}
-              <Badge value={box.status} />
-            </li>
-          ))}
-        </ul>
-      ) : (
-        <p className="ow-note is-warn">No inbox connected yet.</p>
-      )}
-      <button className="ow-add" onClick={() => navigate("mailboxes")}>
-        <Plus size={15} /> {mailboxes.length ? "Manage inboxes" : "Connect an inbox"}
-      </button>
-      <label className="ow-limit">
-        Emails per day
-        <input
-          type="number"
-          min={1}
-          max={200}
-          value={dailyLimit}
-          disabled={!canManage}
-          onChange={(event) => setDailyLimit(Number(event.target.value))}
-        />
-        <em>About 20–25 per inbox keeps it out of spam.</em>
-      </label>
-    </section>
-  );
+  const pad = (hour: number) => `${String(hour).padStart(2, "0")}:00`;
+  const perDay = Math.max(1, liveBoxes.length) * dailyLimit;
 
   return (
     <div className="ow">
@@ -291,20 +283,32 @@ export function OutreachView({ data, organization, canManage, act, navigate }: V
             <li>
               <b>Send</b>
               <span>
-                {compact(dailyLimit)} a day, weekdays 08:00–17:00 · {compact(stats.queued)} queued
+                Up to {compact(perDay)} a day ({compact(dailyLimit)} per inbox), weekdays {pad(startHour)}–{pad(endHour)} ·{" "}
+                {compact(stats.queued)} queued
               </span>
             </li>
             <li>
               <b>Replies go to your sales reps</b>
-              <span>{repList.length ? repList.join(", ") : "No sales reps added yet"}</span>
+              <span>
+                {lanes.some((lane) => split(lane.replyTo).length)
+                  ? lanes
+                      .filter((lane) => split(lane.replyTo).length)
+                      .map((lane) => `${lanes.length > 1 ? `${lane.name}: ` : ""}${split(lane.replyTo).join(", ")}`)
+                      .join(" · ")
+                  : "No sales reps added yet"}
+              </span>
             </li>
           </ol>
         </Panel>
       </div>
 
       <Panel
-        title="Set up"
-        detail={running ? "Changes apply to emails that haven't gone out yet." : "Fill this in once, then start outreach."}
+        title="Campaigns"
+        detail={
+          running
+            ? "Changes apply to emails that haven't gone out yet."
+            : "Each campaign emails one kind of business in the provinces you pick, from the inboxes you pick, and sends replies to its own reps."
+        }
         action={
           canManage && (
             <button disabled={busy} onClick={() => void send("save")}>
@@ -313,102 +317,249 @@ export function OutreachView({ data, organization, canManage, act, navigate }: V
           )
         }
       >
-        <div className="ow-setup">
-          <div className="ow-col">
-          <section>
-            <h3>
-              <span>1</span> Who to email
-            </h3>
-            <p className="muted">The kind of business and where. Add up to 10.</p>
-            {niches.map((item, index) => (
-              <div className="ow-niche" key={index}>
-                <input
-                  aria-label={`Niche ${index + 1}`}
-                  placeholder="e.g. forklift repair"
-                  value={item.niche}
-                  disabled={!canManage}
-                  onChange={(event) =>
-                    setNiches((current) =>
-                      current.map((row, position) =>
-                        position === index ? { ...row, niche: event.target.value } : row,
-                      ),
-                    )
-                  }
-                />
-                <span className="ow-in">in</span>
-                <input
-                  aria-label={`Area for niche ${index + 1}`}
-                  list="ow-areas"
-                  placeholder="e.g. Gauteng"
-                  value={item.area}
-                  disabled={!canManage}
-                  onChange={(event) =>
-                    setNiches((current) =>
-                      current.map((row, position) =>
-                        position === index ? { ...row, area: event.target.value } : row,
-                      ),
-                    )
-                  }
-                />
-                {canManage && niches.length > 1 && (
+        <div className="ow-lanes">
+          {lanes.map((lane, index) => {
+            const isOpen = open.includes(lane.id);
+            const n = index + 1;
+            const where = [...lane.areas, ...split(lane.extraAreas)];
+            const reps = split(lane.replyTo);
+            const placeholders = placeholdersIn(lane.subject, lane.body);
+            const senderBox = mailboxes.find((box) => lane.mailboxIds.includes(text(box.id))) ?? liveBoxes[0] ?? mailboxes[0];
+            const sample = senderBox ? senderFirstName(text(senderBox.email)) : "Gary";
+            const fill = (value: string) =>
+              value.replace(/\{\{\s*company\s*\}\}/g, "Example Workshop").replace(/\{\{\s*sender\s*\}\}/g, sample);
+            return (
+              <section className={`ow-lane${isOpen ? " is-open" : ""}`} key={lane.id}>
+                <header>
                   <button
-                    className="icon-button"
-                    aria-label={`Remove niche ${index + 1}`}
-                    onClick={() => setNiches((current) => current.filter((_, position) => position !== index))}
+                    className="ow-lane-toggle"
+                    aria-expanded={isOpen}
+                    aria-label={`${isOpen ? "Close" : "Open"} ${lane.name || `campaign ${n}`}`}
+                    onClick={() => toggleOpen(lane.id)}
                   >
-                    <Trash2 size={15} />
+                    <ChevronDown size={16} />
+                    <span>
+                      <b>{lane.name || `Campaign ${n}`}</b>
+                      <small>
+                        {split(lane.niches).join(", ") || "No niche yet"} ·{" "}
+                        {where.length ? where.join(", ") : "All of South Africa"} ·{" "}
+                        {reps.length ? `replies to ${reps.join(", ")}` : "no reps yet"}
+                      </small>
+                    </span>
                   </button>
+                  <span className="ow-lane-stats">
+                    {compact(lane.stats.sent)} sent · {compact(lane.stats.replies)} replies
+                  </span>
+                  {canManage && (
+                    <span className="ow-lane-tools">
+                      <button className="icon-button" aria-label={`Copy campaign ${n}`} title="Copy" onClick={() => addLane(lane)}>
+                        <Copy size={15} />
+                      </button>
+                      {lanes.length > 1 && (
+                        <button
+                          className="icon-button"
+                          aria-label={`Remove campaign ${n}`}
+                          title="Remove"
+                          onClick={() => setLanes((current) => current.filter((item) => item.id !== lane.id))}
+                        >
+                          <Trash2 size={15} />
+                        </button>
+                      )}
+                    </span>
+                  )}
+                </header>
+                {isOpen && (
+                  <div className="ow-setup">
+                    <div className="ow-col">
+                      <label>
+                        Campaign name
+                        <input
+                          aria-label={`Campaign ${n} name`}
+                          value={lane.name}
+                          maxLength={80}
+                          disabled={!canManage}
+                          onChange={(event) => change(lane.id, { name: event.target.value })}
+                        />
+                      </label>
+                      <label>
+                        Who to email
+                        <textarea
+                          aria-label={`Campaign ${n} niches`}
+                          rows={2}
+                          placeholder={"forklift repair\nforklift hire"}
+                          value={lane.niches}
+                          disabled={!canManage}
+                          onChange={(event) => change(lane.id, { niches: event.target.value })}
+                        />
+                        <em>One kind of business per line, up to 6.</em>
+                      </label>
+                      <fieldset className="ow-provinces">
+                        <legend>Where</legend>
+                        {PROVINCES.map((province) => (
+                          <label key={province} className="ow-check">
+                            <input
+                              type="checkbox"
+                              aria-label={`Campaign ${n} ${province}`}
+                              checked={lane.areas.includes(province)}
+                              disabled={!canManage}
+                              onChange={(event) =>
+                                change(lane.id, {
+                                  areas: event.target.checked
+                                    ? [...lane.areas, province]
+                                    : lane.areas.filter((item) => item !== province),
+                                })
+                              }
+                            />
+                            {province}
+                          </label>
+                        ))}
+                        <input
+                          aria-label={`Campaign ${n} other areas`}
+                          placeholder="Other towns, e.g. George, Durban"
+                          value={lane.extraAreas}
+                          disabled={!canManage}
+                          onChange={(event) => change(lane.id, { extraAreas: event.target.value })}
+                        />
+                        <em>Tick none for all of South Africa. The province comes from each branch&apos;s own address.</em>
+                      </fieldset>
+                      <fieldset className="ow-provinces">
+                        <legend>Send from</legend>
+                        {mailboxes.length ? (
+                          mailboxes.map((box) => (
+                            <label key={text(box.id)} className="ow-check ow-check-wide">
+                              <input
+                                type="checkbox"
+                                aria-label={`Campaign ${n} inbox ${text(box.email)}`}
+                                checked={lane.mailboxIds.includes(text(box.id))}
+                                disabled={!canManage}
+                                onChange={(event) =>
+                                  change(lane.id, {
+                                    mailboxIds: event.target.checked
+                                      ? [...lane.mailboxIds, text(box.id)]
+                                      : lane.mailboxIds.filter((item) => item !== text(box.id)),
+                                  })
+                                }
+                              />
+                              {text(box.email)}
+                              <Badge value={box.status} />
+                            </label>
+                          ))
+                        ) : (
+                          <p className="ow-note is-warn">No inbox connected yet.</p>
+                        )}
+                        <button className="ow-add" onClick={() => navigate("mailboxes")}>
+                          <Plus size={15} /> {mailboxes.length ? "Manage inboxes" : "Connect an inbox"}
+                        </button>
+                        <em>Tick none to use every live inbox. {"{{sender}}"} becomes the inbox&apos;s first name.</em>
+                      </fieldset>
+                      <label>
+                        Replies go to
+                        <textarea
+                          aria-label={`Campaign ${n} sales rep emails`}
+                          rows={2}
+                          placeholder={"sales@client.co.za\nrep@client.co.za"}
+                          value={lane.replyTo}
+                          disabled={!canManage}
+                          onChange={(event) => change(lane.id, { replyTo: event.target.value })}
+                        />
+                        <em>The client&apos;s sales reps, one per line, up to 5. Every reply lands in their inbox and is counted here.</em>
+                      </label>
+                    </div>
+                    <div className="ow-col ow-col-tight">
+                      <label>
+                        Subject
+                        <input
+                          aria-label={`Campaign ${n} subject`}
+                          value={lane.subject}
+                          disabled={!canManage}
+                          maxLength={200}
+                          onChange={(event) => change(lane.id, { subject: event.target.value })}
+                        />
+                      </label>
+                      <label>
+                        Message
+                        <textarea
+                          aria-label={`Campaign ${n} message`}
+                          rows={10}
+                          value={lane.body}
+                          disabled={!canManage}
+                          maxLength={5000}
+                          onChange={(event) => change(lane.id, { body: event.target.value })}
+                        />
+                        <em>Use {"{{company}}"} for their name and {"{{sender}}"} for the sending person&apos;s first name.</em>
+                      </label>
+                      {placeholders.length > 0 && (
+                        <p className="ow-note is-warn">
+                          Replace {placeholders.map((field) => `{{${field}}}`).join(", ")} with real words before starting.
+                        </p>
+                      )}
+                      <div className="ow-preview">
+                        <span>What a business receives</span>
+                        <b>{fill(lane.subject)}</b>
+                        <pre>{`${fill(lane.body).trimEnd()}\n\n${permissionNotice(businessName)}`}</pre>
+                      </div>
+                      <p className="ow-note">
+                        The last paragraph is added by law (POPIA): it&apos;s a one-time email, and a YES reply records
+                        that the business agreed to hear more.
+                      </p>
+                    </div>
+                  </div>
                 )}
-              </div>
-            ))}
-            <datalist id="ow-areas">
-              {areas.map((area) => (
-                <option key={area} value={area} />
-              ))}
-            </datalist>
-            {canManage && niches.length < 10 && (
-              <button
-                className="ow-add"
-                onClick={() => setNiches((current) => [...current, { niche: "", area: current.at(-1)?.area || "Gauteng" }])}
-              >
-                <Plus size={15} /> Add another niche
-              </button>
-            )}
-          </section>
-          {repsSection}
-          {sendSection}
-          </div>
-
-          <section className="ow-col">
-            <h3>
-              <span>2</span> The email
-            </h3>
-            <p className="muted">
-              Each business gets this once. Use {"{{company}}"} for their name.
-            </p>
-            <label>
-              Subject
-              <input value={subject} disabled={!canManage} maxLength={200} onChange={(event) => setSubject(event.target.value)} />
-            </label>
-            <label>
-              Message
-              <textarea rows={8} value={body} disabled={!canManage} maxLength={5000} onChange={(event) => setBody(event.target.value)} />
-            </label>
-            {placeholders.length > 0 && (
-              <p className="ow-note is-warn">
-                Replace {placeholders.map((field) => `{{${field}}}`).join(", ")} with real words before starting.
-              </p>
-            )}
-            <div className="ow-preview">
-              <span>What a business receives</span>
-              <b>{subject.replace(/\{\{\s*company\s*\}\}/g, "Example Workshop")}</b>
-              <pre>{preview}</pre>
-            </div>
-            <p className="ow-note">
-              The last paragraph is added by law (POPIA): it&apos;s a one-time email, and a YES reply
-              records that the business agreed to hear more.
-            </p>
-          </section>
+              </section>
+            );
+          })}
+          {canManage && lanes.length < 8 && (
+            <button className="ow-add" onClick={() => addLane()}>
+              <Plus size={15} /> Add campaign
+            </button>
+          )}
+        </div>
+        <div className="ow-general">
+          <label>
+            Skip businesses whose name includes
+            <input
+              aria-label="Skip words"
+              placeholder="training, battery, racking"
+              value={exclude}
+              disabled={!canManage}
+              onChange={(event) => setExclude(event.target.value)}
+            />
+            <em>Comma-separated. Use it for businesses that never fit, like training schools.</em>
+          </label>
+          <label>
+            Emails per inbox per day
+            <input
+              type="number"
+              aria-label="Emails per inbox per day"
+              min={1}
+              max={50}
+              value={dailyLimit}
+              disabled={!canManage}
+              onChange={(event) => setDailyLimit(Number(event.target.value))}
+            />
+            <em>20 or fewer keeps each inbox out of spam. New inboxes start lower and build up.</em>
+          </label>
+          <label>
+            Sending hours (weekdays)
+            <span className="ow-hours">
+              <select aria-label="Start sending at" value={startHour} disabled={!canManage} onChange={(event) => setStartHour(Number(event.target.value))}>
+                {hours.slice(0, 24).map((hour) => (
+                  <option key={hour} value={hour}>
+                    {pad(hour)}
+                  </option>
+                ))}
+              </select>
+              to
+              <select aria-label="Stop sending at" value={endHour} disabled={!canManage} onChange={(event) => setEndHour(Number(event.target.value))}>
+                {hours.slice(1).map((hour) => (
+                  <option key={hour} value={hour}>
+                    {pad(hour)}
+                  </option>
+                ))}
+              </select>
+            </span>
+            <em>South African time.</em>
+          </label>
         </div>
         {canManage && (
           <div className="ow-actions">
@@ -453,3 +604,4 @@ export function OutreachView({ data, organization, canManage, act, navigate }: V
     </div>
   );
 }
+
