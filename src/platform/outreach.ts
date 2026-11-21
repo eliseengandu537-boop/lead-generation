@@ -20,6 +20,7 @@ import { personalizeFollowup } from "./mail/content";
 import {
   nicheSchema,
   outreachSettings,
+  nextSearch,
   placeholdersLeft,
   profileOf,
   senderBusinessName,
@@ -34,7 +35,6 @@ import {
  */
 
 const DAY = 86400000;
-const FIND_EVERY = 6 * 3600000;
 const AUTOPILOT = "NICHE_MATCH";
 const asJson = (value: OutreachSettings) => value as unknown as Prisma.InputJsonValue;
 const titleCase = (value: string) =>
@@ -390,6 +390,8 @@ async function findBusinesses(
       exclude: [...ids].filter((id): id is string => !!id && id.startsWith("OVERTURE:")),
       limit: 60,
       requireMissingWebsite: false,
+      // Runs on the background worker, so a slow connection gets 5 minutes instead of 2.5.
+      timeoutMs: 300000,
     }));
   } catch (problem) {
     error = (problem as Error).message.slice(0, 300);
@@ -631,13 +633,9 @@ export async function outreachTick(provider = fetchWebsiteProspects) {
           waiting < 300 &&
           (!state.nextFindAt || new Date(state.nextFindAt) <= new Date())
         ) {
+          const previous = state.lastFind;
           lastFind = await findBusinesses(workspaceId, state, provider);
-          state = {
-            ...state,
-            lastFind,
-            nicheCursor: state.nicheCursor + 1,
-            nextFindAt: new Date(Date.now() + FIND_EVERY).toISOString(),
-          };
+          state = { ...state, ...nextSearch(state.nicheCursor, previous, lastFind), lastFind };
           await db.platformOrganization.update({
             where: { workspaceId },
             data: { outreach: asJson(state) },

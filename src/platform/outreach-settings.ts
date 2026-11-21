@@ -69,3 +69,25 @@ export function senderBusinessName(profile: unknown, workspaceName: string) {
   const name = profileOf(profile).companyName;
   return typeof name === "string" && name.trim() ? name.trim().slice(0, 200) : workspaceName;
 }
+
+const FIND_EVERY = 6 * 3600000;
+const RETRY_FIND = 30 * 60000;
+type FindResult = { niche: string; area: string; error?: string };
+/**
+ * Which niche to search next and when. A failed search (e.g. a slow connection) is retried once
+ * after 30 minutes instead of skipping that area for a whole cycle; a second failure moves on.
+ */
+export function nextSearch(
+  cursor: number,
+  previous: FindResult | null | undefined,
+  result: FindResult,
+  now = Date.now(),
+) {
+  const failedAgain =
+    !!previous?.error && previous.niche === result.niche && previous.area === result.area;
+  const retry = !!result.error && !failedAgain;
+  return {
+    nicheCursor: retry ? cursor : cursor + 1,
+    nextFindAt: new Date(now + (retry ? RETRY_FIND : FIND_EVERY)).toISOString(),
+  };
+}

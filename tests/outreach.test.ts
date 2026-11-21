@@ -7,6 +7,7 @@ import {
 } from "../src/platform/mail/permission";
 import {
   outreachReplyTo,
+  nextSearch,
   outreachSettings,
   placeholdersLeft,
   senderBusinessName,
@@ -80,4 +81,15 @@ test("emails and the POPIA notice name the business from its profile, not the wo
   assert.equal(senderBusinessName({ companyName: "" }, "dcbspare"), "dcbspare");
   assert.equal(senderBusinessName(null, "dcbspare"), "dcbspare");
   assert.equal(senderBusinessName(["not", "a", "profile"], "dcbspare"), "dcbspare");
+});
+
+test("a failed business search retries the same area once in 30 minutes, then moves on", () => {
+  const now = Date.UTC(2026, 10, 21, 12);
+  const wc = { niche: "forklift", area: "Western Cape" };
+  const ok = nextSearch(1, null, { ...wc }, now);
+  assert.deepEqual(ok, { nicheCursor: 2, nextFindAt: new Date(now + 6 * 3600000).toISOString() });
+  const retry = nextSearch(1, { niche: "forklift", area: "Gauteng" }, { ...wc, error: "Interrupted" }, now);
+  assert.deepEqual(retry, { nicheCursor: 1, nextFindAt: new Date(now + 30 * 60000).toISOString() });
+  const moveOn = nextSearch(1, { ...wc, error: "Interrupted" }, { ...wc, error: "Interrupted" }, now);
+  assert.equal(moveOn.nicheCursor, 2);
 });

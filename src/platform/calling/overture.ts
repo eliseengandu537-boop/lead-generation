@@ -175,6 +175,8 @@ type ProspectQuery = {
   cities?: string[];
   categories?: string[];
   requireMissingWebsite?: boolean;
+  /** How long the map search may run before it is stopped (background callers can allow longer). */
+  timeoutMs?: number;
 };
 /** User text is bound as data. SQL operators and identifiers are fixed here. */
 export function prospectQueryPredicate(options: ProspectQuery) {
@@ -253,7 +255,10 @@ export async function fetchWebsiteProspects(
     threads: "2",
   });
   const connection = await instance.connect();
-  const timeout = setTimeout(() => connection.interrupt(), 150000);
+  const timeout = setTimeout(
+    () => connection.interrupt(),
+    Math.min(Math.max(options.timeoutMs ?? 150000, 30000), 600000),
+  );
   try {
     try {
       await connection.run("LOAD httpfs");
