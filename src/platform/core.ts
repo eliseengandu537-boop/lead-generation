@@ -1732,6 +1732,8 @@ export async function adminRead() {
   if (!user.agencyAdmin)
     throw new HttpError(403, "Platform administrator required");
   const organizations = await controlDb.platformOrganization.findMany({
+    // The agency's own calling desk is not a client, so it stays out of the Clients list.
+    where: { onboardingStatus: { not: "AGENCY" } },
     select: {
       workspaceId: true,
       websiteUrl: true,
