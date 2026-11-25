@@ -3,13 +3,20 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { ArrowRight, Inbox, LoaderCircle, Plus, X } from "lucide-react";
 import { label, object, rows, text, type RecordValue } from "./data";
 
+/** The Monettic "Mt" monogram, drawn in the current text colour (white on the brand blue tile). */
 export function MonetticMark({ small = false }: { small?: boolean }) {
   return (
-    <span className={`orbit-mark ${small ? "small" : ""}`} aria-hidden="true">
-      <i />
-      <i />
-      <b />
-    </span>
+    <svg
+      className={`monettic-mark${small ? " small" : ""}`}
+      viewBox="170 140 660 540"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path
+        fill="currentColor"
+        d="M178 152H272L425 473L580 152H672V283H818V362H672V520A65 65 0 0 0 737 585H791V665H737A145 145 0 0 1 592 520V318L425 665L258 318V665H178Z"
+      />
+    </svg>
   );
 }
 export function Badge({ value }: { value: unknown }) {

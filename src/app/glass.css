@@ -15,11 +15,11 @@
   --subtle: #8b929b;
   --line: rgba(255, 255, 255, 0.085);
   --line-strong: rgba(255, 255, 255, 0.15);
-  --accent: #c9f26b;
-  --accent-hover: #d8f78f;
-  --accent-soft: rgba(201, 242, 107, 0.13);
-  --accent-line: rgba(201, 242, 107, 0.32);
-  --on-accent: #141a08;
+  --accent: #5a9ad6;
+  --accent-hover: #7db1e3;
+  --accent-soft: rgba(90, 154, 214, 0.16);
+  --accent-line: rgba(90, 154, 214, 0.42);
+  --on-accent: #ffffff;
   --success: #8fdc9f;
   --success-bg: rgba(110, 200, 130, 0.12);
   --success-line: rgba(110, 200, 130, 0.28);
@@ -43,10 +43,11 @@
   --g-hover: rgba(255, 255, 255, 0.07);
   --g-active: rgba(255, 255, 255, 0.13);
   --g-edge: rgba(255, 255, 255, 0.09);
-  --cta: #c9f26b;
-  --cta-hover: #d6f78a;
-  --on-cta: #141a08;
-  --g-avatar: #e3f4c2;
+  --brand: #5a9ad6;
+  --cta: #3a78c2;
+  --cta-hover: #2f6cb5;
+  --on-cta: #ffffff;
+  --g-avatar: #d6e7f7;
   color-scheme: dark;
 }
 :root[data-theme="light"]:has(.glass) {
@@ -61,10 +62,10 @@
   --subtle: #6a717b;
   --line: rgba(20, 24, 30, 0.09);
   --line-strong: rgba(20, 24, 30, 0.17);
-  --accent: #4d760c;
-  --accent-hover: #3d5f08;
-  --accent-soft: rgba(140, 190, 40, 0.16);
-  --accent-line: rgba(110, 160, 20, 0.38);
+  --accent: #2e6aae;
+  --accent-hover: #255a96;
+  --accent-soft: rgba(90, 154, 214, 0.15);
+  --accent-line: rgba(58, 120, 194, 0.38);
   --on-accent: #ffffff;
   --success: #23794f;
   --success-bg: rgba(40, 150, 90, 0.1);
@@ -86,11 +87,25 @@
   --g-hover: rgba(20, 24, 30, 0.05);
   --g-active: rgba(255, 255, 255, 0.95);
   --g-edge: rgba(255, 255, 255, 0.75);
-  --cta: #c6ef5e;
-  --cta-hover: #b8e64a;
-  --on-cta: #141a08;
-  --g-avatar: #d9efb0;
+  --brand: #5a9ad6;
+  --cta: #3a78c2;
+  --cta-hover: #2f6cb5;
+  --on-cta: #ffffff;
+  --g-avatar: #d6e7f7;
   color-scheme: light;
+}
+
+/* ---------- Logo (used on every page, glass or not) ---------- */
+.monettic-mark {
+  display: inline-block;
+  flex-shrink: 0;
+  width: 31px;
+  height: 26px;
+  color: #5a9ad6;
+}
+.monettic-mark.small {
+  width: 20px;
+  height: 17px;
 }
 
 /* ---------- Backdrop ---------- */
@@ -110,7 +125,7 @@
     radial-gradient(60% 50% at 16% 6%, rgba(126, 146, 172, 0.55), transparent 70%),
     radial-gradient(50% 45% at 84% 4%, rgba(84, 100, 124, 0.5), transparent 70%),
     radial-gradient(55% 50% at 62% 80%, rgba(150, 84, 44, 0.42), transparent 72%),
-    radial-gradient(45% 45% at 10% 94%, rgba(70, 84, 40, 0.45), transparent 70%),
+    radial-gradient(45% 45% at 10% 94%, rgba(58, 120, 194, 0.4), transparent 70%),
     radial-gradient(40% 35% at 94% 92%, rgba(112, 60, 36, 0.38), transparent 70%),
     linear-gradient(180deg, #2b323c 0%, #17191d 46%, #120f0d 100%);
 }
@@ -127,7 +142,7 @@
     radial-gradient(60% 50% at 16% 6%, rgba(168, 196, 224, 0.65), transparent 70%),
     radial-gradient(50% 45% at 84% 4%, rgba(200, 214, 230, 0.6), transparent 70%),
     radial-gradient(55% 50% at 62% 82%, rgba(246, 196, 150, 0.5), transparent 72%),
-    radial-gradient(45% 45% at 10% 94%, rgba(196, 220, 150, 0.55), transparent 70%),
+    radial-gradient(45% 45% at 10% 94%, rgba(170, 205, 240, 0.6), transparent 70%),
     linear-gradient(180deg, #e8edf2 0%, #f1efec 55%, #f3ece4 100%);
 }
 :root:has(.glass) body {
@@ -187,12 +202,14 @@
   width: 40px;
   height: 40px;
   border-radius: 12px;
-  background: var(--cta);
-  color: var(--on-cta);
-  box-shadow: 0 8px 24px -10px rgba(201, 242, 107, 0.7);
+  background: var(--brand);
+  color: #ffffff;
+  box-shadow: 0 8px 24px -10px rgba(90, 154, 214, 0.75);
 }
-.glass .g-brand-tile .orbit-mark {
-  color: var(--on-cta);
+.glass .g-brand-tile .monettic-mark {
+  width: 24px;
+  height: 20px;
+  color: #ffffff;
 }
 .glass label.g-workspace {
   position: relative;
@@ -342,7 +359,7 @@
   height: 42px;
   border-radius: 50%;
   background: var(--g-avatar);
-  color: #1a2010;
+  color: #10243a;
   font: 600 14px/1 var(--font);
 }
 
@@ -567,7 +584,7 @@
 }
 .glass.adm-v2 .adm-funnel-track > i,
 .glass.adm-v2 .adm-progress > i {
-  background: linear-gradient(90deg, #9fcf3e, var(--cta));
+  background: linear-gradient(90deg, #3a78c2, #7db1e3);
 }
 
 /* ---------- Buttons, inputs, tabs ---------- */
@@ -584,7 +601,7 @@
   background: var(--cta);
   color: var(--on-cta);
   font-weight: 600;
-  box-shadow: 0 10px 26px -12px rgba(190, 236, 90, 0.75);
+  box-shadow: 0 10px 26px -12px rgba(58, 120, 194, 0.7);
 }
 .glass button.primary:hover,
 .glass .button.primary:hover,
@@ -726,7 +743,7 @@
 .glass.adm-v2 .stage-interested {
   --deal: rgba(116, 138, 50, 0.5);
   --deal-solid: #5d6b2c;
-  --dot: #c9f26b;
+  --dot: #8fdc9f;
 }
 .glass.adm-v2 .stage-booked {
   --deal: rgba(150, 76, 50, 0.52);
@@ -815,7 +832,7 @@
   border-color: var(--accent-line);
   box-shadow:
     inset 0 0 0 1px var(--accent-line),
-    0 0 40px -12px rgba(201, 242, 107, 0.35);
+    0 0 40px -12px rgba(90, 154, 214, 0.4);
 }
 .glass.adm-v2 .adm-deal {
   cursor: grab;
@@ -915,7 +932,7 @@ body.g-dragging * {
 .glass.adm-v2 .adm-outcome.is-won .adm-outcome-icon {
   background: var(--cta);
   color: var(--on-cta);
-  box-shadow: 0 10px 30px -10px rgba(201, 242, 107, 0.7);
+  box-shadow: 0 10px 30px -10px rgba(90, 154, 214, 0.75);
 }
 .glass.adm-v2 .adm-outcome.is-over {
   border-style: solid;
@@ -1069,7 +1086,7 @@ body.g-dragging * {
   height: 46px;
   border-radius: 50%;
   background: var(--g-avatar);
-  color: #1a2010;
+  color: #10243a;
   font: 600 15px/1 var(--display);
 }
 .glass .adm-cust:nth-child(3n + 2) .adm-cust-avatar {
@@ -1534,7 +1551,7 @@ body.g-dragging * {
 }
 .glass .adm-job.is-on {
   border-color: var(--accent-line);
-  background: linear-gradient(135deg, rgba(201, 242, 107, 0.16), var(--g-glass) 70%);
+  background: linear-gradient(135deg, rgba(90, 154, 214, 0.2), var(--g-glass) 70%);
 }
 .glass .adm-job-tile {
   display: grid;
@@ -1779,7 +1796,7 @@ body.g-dragging * {
   display: block;
   height: 100%;
   border-radius: inherit;
-  background: linear-gradient(90deg, #9fcf3e, var(--cta));
+  background: linear-gradient(90deg, #3a78c2, #7db1e3);
   animation: g-grow 0.9s cubic-bezier(0.22, 1, 0.36, 1) backwards;
   transform-origin: left;
 }
