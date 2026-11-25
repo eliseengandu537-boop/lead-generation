@@ -7,13 +7,18 @@ export type VerificationResult = { status: VerificationStatus; detail: string };
 export type VerificationSetup =
   | { provider: "millionverifier"; key: string }
   | { provider: "zerobounce"; key: string }
-  | { provider: "gateway"; key: string; url: string };
+  | { provider: "gateway"; key: string; url: string }
+  /** Free: the address is well formed, not a placeholder or throwaway, and its domain accepts mail.
+   * The mailbox itself is not confirmed, so bounces are watched and sending pauses at 3%. */
+  | { provider: "domain" };
 type Resolver = Pick<typeof dns, "resolveMx" | "resolve4" | "resolve6">;
 
 /** The configured mailbox verification service, or null when only the free domain check is available. */
 export function verificationSetup(
   env: Record<string, string | undefined> = process.env,
 ): VerificationSetup | null {
+  const named = env.EMAIL_VERIFICATION_PROVIDER?.trim().toLowerCase();
+  if (named === "domain") return { provider: "domain" };
   const key = env.EMAIL_VERIFICATION_API_KEY?.trim();
   if (!key) return null;
   const provider = (
@@ -114,12 +119,39 @@ async function providerJson(
   return response.json();
 }
 
-/** Mailbox-level verification through the configured paid service. */
+const throwaway = new Set([
+  "mailinator.com", "guerrillamail.com", "10minutemail.com", "tempmail.com", "temp-mail.org",
+  "yopmail.com", "trashmail.com", "sharklasers.com", "getnada.com", "dispostable.com",
+  "maildrop.cc", "throwawaymail.com", "fakeinbox.com", "mailnesia.com", "emailondeck.com",
+]);
+const placeholderDomains = new Set([
+  "example.com", "example.org", "example.net", "domain.com", "email.com", "yourdomain.com",
+  "yourcompany.com", "company.com", "website.com", "test.com", "sentry.io", "wixpress.com",
+  "sentry-next.wixpress.com",
+]);
+/** Free check after the domain lookup passed: rejects placeholders and scraping leftovers
+ * (an image name like logo@2x.png, "you@yourdomain.com"), and throwaway inboxes. */
+export function freeAddressCheck(email: string): VerificationResult {
+  const [local, domain = ""] = email.toLowerCase().split("@");
+  if (/\.(png|jpe?g|gif|webp|svg|css|js)$/.test(domain) || /@\d+x\./.test(email.toLowerCase()))
+    return { status: "INVALID", detail: "This looks like a file name picked up from the website, not an email address." };
+  if (placeholderDomains.has(domain) || ["you", "yourname", "name", "email", "user", "username", "test"].includes(local))
+    return { status: "INVALID", detail: "This is a placeholder address from the website, not a real inbox." };
+  if (throwaway.has(domain))
+    return { status: "INVALID", detail: `${domain} is a throwaway inbox service.` };
+  return {
+    status: "VALID",
+    detail: "Free check: the domain accepts email. The inbox itself is not confirmed, so bounces are watched and sending pauses at 3%.",
+  };
+}
+
+/** Mailbox-level verification through the configured paid service, or the free check. */
 export async function providerVerification(
   email: string,
   setup: VerificationSetup,
   request: typeof fetch = fetch,
 ): Promise<VerificationResult> {
+  if (setup.provider === "domain") return freeAddressCheck(email);
   if (setup.provider === "millionverifier") {
     const url = new URL("https://api.millionverifier.com/api/v3/");
     url.searchParams.set("api", setup.key);

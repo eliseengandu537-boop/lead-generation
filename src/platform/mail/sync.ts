@@ -19,11 +19,13 @@ import {
   microsoftToken,
 } from "./microsoft";
 import { classifyReply } from "./policy";
+import { appPasswordCredentials, appPasswordFetchSince } from "./app-password";
+import { parseRawMessage, rawText } from "./raw-mime";
 import { recordMailEvent, suppressAddress } from "./events";
 import { clearConsentReply } from "./permission";
 
 type Inbound = {
-  provider: "gmail" | "microsoft";
+  provider: "gmail" | "microsoft" | "gmail-app";
   id: string;
   threadId?: string;
   from: string;
@@ -426,6 +428,70 @@ async function syncMicrosoft(
   return { recorded, checked };
 }
 
+/** A personal Gmail connected with an App Password: new mail is read over IMAP and handled exactly
+ * like the Gmail API path (delivery reports first, then replies matched by Message-ID). */
+async function syncAppPassword(
+  workspaceId: string,
+  mailbox: PlatformMailbox,
+  after: Date,
+) {
+  const credentials = await appPasswordCredentials(workspaceId, mailbox.id);
+  const messages = await appPasswordFetchSince(workspaceId, mailbox.id, credentials, after);
+  let recorded = 0,
+    checked = 0;
+  for (const item of messages) {
+    checked++;
+    const part = parseRawMessage(item.source);
+    const feedback = parseGmailDeliveryStatus(part);
+    if (feedback) {
+      for (const recipient of feedback.recipients) {
+        const original = await db.platformMailMessage.findFirst({
+          where: {
+            workspaceId,
+            mailboxId: mailbox.id,
+            direction: "OUTBOUND",
+            status: "ACCEPTED",
+            rfcMessageId: { in: feedback.originalMessageIds },
+            toEmail: { equals: recipient.email, mode: "insensitive" },
+            createdAt: { lte: item.receivedAt },
+          },
+        });
+        if (!original) continue;
+        const event = await recordMailEvent(workspaceId, mailbox.id, {
+          messageId: original.id,
+          externalId: `gmail-app:dsn:${item.id}:${original.id}`,
+          kind: recipient.type,
+          detail: `${recipient.status}${recipient.diagnostic ? ` ${recipient.diagnostic}` : ""}`,
+          occurredAt: item.receivedAt,
+        });
+        if (!event.duplicate) recorded++;
+      }
+      continue;
+    }
+    const from = senderAddress(gmailHeader(part, "From"));
+    if (!from || from === mailbox.email.toLowerCase()) continue;
+    const original = await findOriginal(workspaceId, mailbox.id, {
+      from,
+      references: messageIds(`${gmailHeader(part, "In-Reply-To")} ${gmailHeader(part, "References")}`),
+      receivedAt: item.receivedAt,
+    });
+    if (!original) continue;
+    recorded += await recordReply(workspaceId, mailbox, original, {
+      provider: "gmail-app",
+      id: item.id,
+      threadId: item.threadId,
+      from,
+      subject: gmailHeader(part, "Subject"),
+      body:
+        rawText(part) ||
+        "Formatted reply received; open the connected Gmail mailbox to view its original content.",
+      messageIdHeader: gmailHeader(part, "Message-ID"),
+      receivedAt: item.receivedAt,
+    });
+  }
+  return { recorded, checked };
+}
+
 export async function syncMailbox(
   workspaceId: string,
   mailboxId: string,
@@ -466,7 +532,9 @@ export async function syncMailbox(
     const result =
       mailbox.provider === "MICROSOFT"
         ? await syncMicrosoft(workspaceId, mailbox, after, request)
-        : await syncGmail(workspaceId, mailbox, after, request);
+        : mailbox.provider === "GMAIL_APP"
+          ? await syncAppPassword(workspaceId, mailbox, after)
+          : await syncGmail(workspaceId, mailbox, after, request);
     await db.platformMailbox.update({
       where: { id: mailboxId },
       data: { lastSyncedAt: startedAt, syncError: null },

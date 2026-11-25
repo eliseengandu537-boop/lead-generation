@@ -20,6 +20,7 @@ import {
   sendGraphDraft,
 } from "./microsoft";
 import { mailboxAccess, providerName, type MailboxAccess } from "./provider";
+import { appPasswordFindSent, appPasswordSend } from "./app-password";
 import { pauseUnsafeCampaign } from "./events";
 import { withinSendingWindow } from "./schedule";
 import { personalizeFollowup, unfilledEmailFields } from "./content";
@@ -499,6 +500,20 @@ async function deliverReservedMessage(
         threadId: draft.conversationId,
         wireMessageId: draft.internetMessageId,
       };
+    } else if (access.provider === "GMAIL_APP") {
+      // Gmail's SMTP server keeps this message's Message-ID, which is how replies and bounces
+      // read back over IMAP are matched to it.
+      await appPasswordSend(
+        message.workspaceId,
+        message.mailboxId,
+        access.credentials,
+        mimeMessage(mail),
+        { from: message.fromEmail, to: message.toEmail },
+      );
+      sent = {
+        id: message.rfcMessageId,
+        threadId: original?.providerThreadId || message.rfcMessageId,
+      };
     } else
       sent = await gmailSend(
         googleRawMessage(mail),
@@ -612,6 +627,9 @@ export async function reconcileMessage(
   if (access.provider === "MICROSOFT") {
     const copy = await microsoftSentCopy(message, access.token, request);
     if (copy) sent = { id: copy.id, threadId: copy.conversationId };
+  } else if (access.provider === "GMAIL_APP") {
+    if (await appPasswordFindSent(access.credentials, message.rfcMessageId))
+      sent = { id: message.rfcMessageId, threadId: message.providerThreadId || message.rfcMessageId };
   } else {
     const url = new URL(
       "https://gmail.googleapis.com/gmail/v1/users/me/messages",

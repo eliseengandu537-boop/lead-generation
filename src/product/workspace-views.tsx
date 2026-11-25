@@ -484,8 +484,51 @@ export function MailboxesView(props: ViewProps) {
       setBusy(false);
     }
   }
+  // A personal Gmail, connected with a Google App Password (no Google Cloud setup needed).
+  const approvedGmail = (Array.isArray(data.sendingDomains) ? data.sendingDomains.map(String) : []).find(
+    (entry) => /@(gmail|googlemail)\.com$/i.test(entry),
+  );
+  function connectAppPassword(email?: string) {
+    openDialog({
+      title: "Connect Gmail with an App Password",
+      detail:
+        "Sign in to the Gmail account, turn on 2-Step Verification (myaccount.google.com/security), then open myaccount.google.com/apppasswords, create one called Monettic and paste the 16 letters here. The address must be approved above first.",
+      fields: [
+        {
+          name: "email",
+          label: "Gmail address",
+          type: "email",
+          required: true,
+          value: email ?? approvedGmail ?? "",
+          placeholder: "dcbspares@gmail.com",
+        },
+        {
+          name: "appPassword",
+          label: "App Password",
+          type: "password",
+          required: true,
+          placeholder: "abcd efgh ijkl mnop",
+        },
+      ],
+      submitLabel: "Connect Gmail",
+      submit: (value) =>
+        act("mailboxes", {
+          action: "connect-app-password",
+          email: text(value.email),
+          appPassword: text(value.appPassword),
+        }),
+    });
+  }
   const connectButtons = (primary: boolean) => (
     <span className="inline-actions">
+      <button
+        className={primary ? "primary" : undefined}
+        disabled={busy}
+        onClick={() => connectAppPassword()}
+      >
+        {primary && <Plus size={17} />}
+        Connect Gmail (App Password)
+      </button>
       <button
         className={primary ? "primary" : undefined}
         disabled={busy || !providers.google}
@@ -523,7 +566,7 @@ export function MailboxesView(props: ViewProps) {
             {!providers.google && !providers.microsoft
               ? "Business email connection is waiting for the platform's Google and Microsoft 365 sign-in setup."
               : `${providers.google ? "Microsoft 365" : "Google Workspace"} connection is waiting for the platform's sign-in setup.`}{" "}
-            Your administrator can complete it before accounts are connected.
+            A personal Gmail can still be connected now with an App Password.
           </span>
         </div>
       )}
@@ -544,7 +587,9 @@ export function MailboxesView(props: ViewProps) {
                   ? "Microsoft 365"
                   : mailbox.provider === "GMAIL"
                     ? "Google Workspace"
-                    : label(mailbox.provider)}{" "}
+                    : mailbox.provider === "GMAIL_APP"
+                      ? "Gmail (App Password)"
+                      : label(mailbox.provider)}{" "}
                 · Your connected business account
               </p>
               <div className="mailbox-facts">
@@ -559,9 +604,11 @@ export function MailboxesView(props: ViewProps) {
                   className="primary"
                   disabled={busy}
                   onClick={() =>
-                    void connect(
-                      mailbox.provider === "MICROSOFT" ? "MICROSOFT" : "GOOGLE",
-                    )
+                    mailbox.provider === "GMAIL_APP"
+                      ? connectAppPassword(text(mailbox.email))
+                      : void connect(
+                          mailbox.provider === "MICROSOFT" ? "MICROSOFT" : "GOOGLE",
+                        )
                   }
                 >
                   Reconnect {text(mailbox.email)}

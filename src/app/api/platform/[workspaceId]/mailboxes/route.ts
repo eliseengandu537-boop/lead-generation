@@ -3,7 +3,13 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { HttpError, sameOrigin } from "@/lib/auth";
 import { handle, json } from "@/lib/http";
-import { secret } from "@/lib/security";
+import { encrypt, secret } from "@/lib/security";
+import {
+  APP_PASSWORD_PROVIDER,
+  checkAppPassword,
+  isGmailAddress,
+  normalizeAppPassword,
+} from "@/platform/mail/app-password";
 import { organizationAccess } from "@/platform/core";
 import { enqueueJob } from "@/platform/jobs";
 import {
@@ -83,9 +89,12 @@ const actionSchema = z.object({
     "restart-warmup",
     "add-domain",
     "remove-domain",
+    "connect-app-password",
   ]),
   id: z.string().optional(),
   domain: z.string().max(253).optional(),
+  email: z.string().max(254).optional(),
+  appPassword: z.string().max(64).optional(),
   provider: z.enum(["GOOGLE", "MICROSOFT"]).default("GOOGLE"),
   messageId: z.string().optional(),
   dailyLimit: z.number().int().min(1).max(1000).optional(),
@@ -122,6 +131,55 @@ export async function POST(request: Request, { params }: Context) {
         },
       );
       return { url };
+    }
+    if (input.action === "connect-app-password") {
+      // A personal Gmail connected with a Google App Password (no Google Cloud app needed).
+      const email = sendingAddress(input.email || "");
+      const appPassword = normalizeAppPassword(input.appPassword || "");
+      if (!email || !isGmailAddress(email))
+        throw new HttpError(400, "Enter the Gmail address, ending in @gmail.com");
+      if (!appPassword)
+        throw new HttpError(400, "An App Password is 16 letters, shown by Google like abcd efgh ijkl mnop");
+      if (!senderAllowed(email, organization))
+        throw new HttpError(
+          400,
+          `Approve ${email} for this client first, under "Add sending domain or inbox"`,
+        );
+      const credentials = { email, appPassword };
+      const check = await checkAppPassword(credentials);
+      const mailbox = await db.platformMailbox.upsert({
+        where: { workspaceId_email: { workspaceId, email } },
+        create: {
+          workspaceId,
+          email,
+          provider: APP_PASSWORD_PROVIDER,
+          warmupStartedAt: new Date(),
+          encryptedCredentials: encrypt(JSON.stringify(credentials)),
+          createdBy: user.id,
+          ...(check.ok ? {} : { syncError: `Not checked yet: ${check.reason}` }),
+        },
+        update: {
+          provider: APP_PASSWORD_PROVIDER,
+          encryptedCredentials: encrypt(JSON.stringify(credentials)),
+          status: "CONNECTED",
+          syncError: check.ok ? null : `Not checked yet: ${check.reason}`,
+          lastSyncedAt: null,
+        },
+      });
+      await refreshDomainHealth(workspaceId, 0, [mailbox.id]);
+      await db.platformActivity.create({
+        data: {
+          workspaceId,
+          actorId: user.id,
+          kind: "MAILBOX_CONNECTED",
+          detail: `${email} connected with a Gmail App Password`,
+        },
+      });
+      return {
+        message: check.ok
+          ? `${email} is connected. Switch it on for sending when you're ready.`
+          : `${email} is saved. Gmail could not be reached from the server just now, so the sender checks the App Password on its next run.`,
+      };
     }
     if (input.action === "add-domain" || input.action === "remove-domain") {
       // Either a whole business domain, or one exact inbox (for example the client's own Gmail).

@@ -31,6 +31,7 @@
     "@twilio/voice-sdk": "^2.18.5",
     "bcryptjs": "^3.0.2",
     "cheerio": "^1.2.0",
+    "imapflow": "2.10.2",
     "ipaddr.js": "^2.5.0",
     "lucide-react": "^0.468.0",
     "next": "^15.5.0",
