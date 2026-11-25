@@ -14,7 +14,7 @@ import {
   beginMicrosoftConnection,
   microsoftConfigured,
 } from "@/platform/mail/microsoft";
-import { senderAllowed, sendingDomain } from "@/platform/mail/domain";
+import { senderAllowed, sendingAddress, sendingDomain } from "@/platform/mail/domain";
 import {
   readDomainHealth,
   refreshDomainHealth,
@@ -124,18 +124,31 @@ export async function POST(request: Request, { params }: Context) {
       return { url };
     }
     if (input.action === "add-domain" || input.action === "remove-domain") {
-      const domain = sendingDomain(input.domain || "");
+      // Either a whole business domain, or one exact inbox (for example the client's own Gmail).
+      const raw = input.domain || "";
+      const domain = raw.includes("@") ? sendingAddress(raw) : sendingDomain(raw);
       if (!domain)
-        throw new HttpError(400, "Enter a business domain such as getdcbspares.co.za (not Gmail or Outlook)");
+        throw new HttpError(
+          400,
+          "Enter a business domain such as getdcbspares.co.za, or one exact inbox address such as sales@gmail.com",
+        );
+      const address = domain.includes("@");
       if (input.action === "remove-domain") {
         const inUse = (
           await db.platformMailbox.findMany({
             where: { workspaceId, status: { not: "DISABLED" } },
             select: { email: true },
           })
-        ).some((item) => item.email.endsWith(`@${domain}`));
+        ).some((item) =>
+          address ? item.email.toLowerCase() === domain : item.email.endsWith(`@${domain}`),
+        );
         if (inUse)
-          throw new HttpError(409, "Disable the mailboxes on this domain before removing it");
+          throw new HttpError(
+            409,
+            address
+              ? "Disable this mailbox before removing it"
+              : "Disable the mailboxes on this domain before removing it",
+          );
       }
       const sendingDomains =
         input.action === "add-domain"
@@ -151,7 +164,7 @@ export async function POST(request: Request, { params }: Context) {
             workspaceId,
             actorId: user.id,
             kind: input.action === "add-domain" ? "SENDING_DOMAIN_ADDED" : "SENDING_DOMAIN_REMOVED",
-            detail: `Sending domain ${domain}`,
+            detail: `${address ? "Sending inbox" : "Sending domain"} ${domain}`,
           },
         });
       });

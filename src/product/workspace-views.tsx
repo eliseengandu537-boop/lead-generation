@@ -420,26 +420,32 @@ function SendingDomains({ data, act, canManage, openDialog }: ViewProps) {
         <button
           onClick={() =>
             openDialog({
-              title: "Add a sending domain",
+              title: "Add a sending domain or inbox",
               detail:
-                "Add a domain this client owns for outreach. Mailboxes on it can then be connected for this client.",
+                "Add a domain this client owns, or one exact inbox they own (such as their Gmail address). Mailboxes on it can then be connected for this client.",
               fields: [
-                { name: "domain", label: "Domain", type: "text", required: true },
+                {
+                  name: "domain",
+                  label: "Domain or inbox address",
+                  type: "text",
+                  required: true,
+                  placeholder: "getdcbspares.co.za or dcbspares@gmail.com",
+                },
                 {
                   name: "confirmed",
-                  label: "The client owns this domain and asked us to send from it.",
+                  label: "The client owns this and asked us to send from it.",
                   type: "checkbox",
                   required: true,
                 },
               ],
-              submitLabel: "Add domain",
+              submitLabel: "Add",
               submit: (value) =>
                 act("mailboxes", { action: "add-domain", domain: text(value.domain) }),
             })
           }
         >
           <Plus size={16} />
-          Add sending domain
+          Add sending domain or inbox
         </button>
       )}
     </section>

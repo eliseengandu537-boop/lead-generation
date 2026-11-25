@@ -149,6 +149,29 @@ export function senderFirstName(email: string) {
   return first ? first[0].toUpperCase() + first.slice(1).toLowerCase() : "";
 }
 
+const sharedInboxes = new Set([
+  "info", "sales", "admin", "office", "hello", "contact", "enquiries", "enquiry", "orders",
+  "accounts", "support", "team", "mail", "marketing", "reception", "noreply", "workshop",
+]);
+/** The person's first name for the From line, or "" for a shared inbox: a role address (sales@),
+ * or one named after the business itself (dcbspares@gmail.com for dcbspares.co.za). */
+export function senderPersonName(email: string, businessDomains: string[] = []) {
+  const local = (email.split("@")[0] ?? "").toLowerCase();
+  const first = local.split(/[._+-]/)[0] ?? "";
+  const labels = businessDomains
+    .map((entry) => entry.trim().toLowerCase().replace(/^https?:\/\//, "").split("@").pop() ?? "")
+    .map((host) => host.replace(/^www\./, "").split(/[/.]/)[0])
+    .filter((label) => label.length > 1);
+  const squashed = local.replace(/[^a-z0-9]/g, "");
+  if (
+    !/^[a-z]{2,15}$/.test(first) ||
+    sharedInboxes.has(first) ||
+    labels.some((label) => label === first || label.replace(/[^a-z0-9]/g, "") === squashed)
+  )
+    return "";
+  return first[0].toUpperCase() + first.slice(1);
+}
+
 /** Fills {{sender}} with the first name of the inbox the email goes out from. */
 export function withSender(text: string, mailboxEmail: string) {
   return text.replace(/\{\{\s*sender\s*\}\}/g, senderFirstName(mailboxEmail));

@@ -26,7 +26,7 @@ import { personalizeFollowup, unfilledEmailFields } from "./content";
 import {
   outreachReplyTo,
   senderBusinessName,
-  senderFirstName,
+  senderPersonName,
   withSender,
 } from "../outreach-settings";
 import {
@@ -435,7 +435,7 @@ async function deliverReservedMessage(
     const [organization, workspace, campaign] = await Promise.all([
       db.platformOrganization.findUnique({
         where: { workspaceId: message.workspaceId },
-        select: { outreach: true, profile: true },
+        select: { outreach: true, profile: true, websiteUrl: true, sendingDomains: true },
       }),
       db.workspace.findUnique({
         where: { id: message.workspaceId },
@@ -455,11 +455,14 @@ async function deliverReservedMessage(
             (campaign?.target as { lane?: unknown } | null)?.lane,
           )
         : [];
-    // "Warren at DCB Auto Electrical Spares" next to the address, so it reads like a person.
-    const firstName = senderFirstName(message.fromEmail);
-    const fromName = firstName
-      ? `${firstName} at ${senderBusinessName(organization?.profile, workspace?.name ?? "")}`.trim()
-      : undefined;
+    // "Warren at DCB Auto Electrical Spares" next to a person's address, so it reads like a
+    // person; a shared inbox (sales@, or the client's own dcbspares@gmail.com) shows the business.
+    const businessName = senderBusinessName(organization?.profile, workspace?.name ?? "");
+    const firstName = senderPersonName(message.fromEmail, [
+      organization?.websiteUrl ?? "",
+      ...(organization?.sendingDomains ?? []),
+    ]);
+    const fromName = (firstName ? `${firstName} at ${businessName}` : businessName).trim() || undefined;
     const mail = {
       from: message.fromEmail,
       fromName,

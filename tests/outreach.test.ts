@@ -16,6 +16,7 @@ import {
   searchTargets,
   senderBusinessName,
   senderFirstName,
+  senderPersonName,
   withSender,
 } from "../src/platform/outreach-settings";
 
@@ -155,6 +156,14 @@ test("{{sender}} becomes the sending inbox's first name; skip words match names"
   assert.equal(senderFirstName("warren@dcbspares.com"), "Warren");
   assert.equal(senderFirstName("gary.basel@dcbspares.com"), "Gary");
   assert.equal(withSender("I'm {{sender}} from DCB. {{ sender }}", "hans@dcbspares.com"), "I'm Hans from DCB. Hans");
+  // The From line uses a person's name only for a person's inbox.
+  const dcb = ["https://www.dcbspares.co.za/", "dcbspares.com", "dcbspares@gmail.com"];
+  assert.equal(senderPersonName("warren@dcbspares.com", dcb), "Warren");
+  assert.equal(senderPersonName("gary.basel@dcbspares.com", dcb), "Gary");
+  assert.equal(senderPersonName("dcbspares@gmail.com", dcb), "");
+  assert.equal(senderPersonName("sales@dcbspares.com", dcb), "");
+  assert.equal(senderPersonName("dcb.spares@gmail.com", dcb), "");
+  assert.equal(senderPersonName("info2024@gmail.com", dcb), "");
   assert.deepEqual(placeholdersLeft("Hi {{company}}", "I'm {{sender}}"), []);
   assert.ok(excluded(["training", "battery"], "Forklift Training Academy"));
   assert.ok(excluded(["battery"], "Acme", "forklift_battery_supplier"));

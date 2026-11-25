@@ -30,16 +30,32 @@ export function senderMatchesWebsite(email: string, websiteDomains: string[]) {
     websiteDomains.some((domain) => normalizeDomain(domain) === sender)
   );
 }
-/** A sender is allowed when it matches the client's website or a sending domain an administrator
- * added for them (professional outreach uses separate domains to protect the main one). */
+/** A sender is allowed when it matches the client's website, a sending domain an administrator
+ * added for them (professional outreach uses separate domains to protect the main one), or one
+ * exact inbox an administrator approved, such as the client's own Gmail address. Approving
+ * dcbspares@gmail.com never approves the rest of gmail.com. */
 export function senderAllowed(
   email: string,
   organization: { websiteUrl: string; sendingDomains: string[] },
 ) {
-  return senderMatchesWebsite(email, [
-    organization.websiteUrl,
-    ...organization.sendingDomains,
-  ]);
+  const address = email.trim().toLowerCase();
+  return (
+    organization.sendingDomains.some(
+      (entry) => entry.includes("@") && entry.trim().toLowerCase() === address,
+    ) ||
+    senderMatchesWebsite(email, [
+      organization.websiteUrl,
+      ...organization.sendingDomains.filter((entry) => !entry.includes("@")),
+    ])
+  );
+}
+/** One exact inbox address an administrator can approve for a client, or null when invalid. */
+export function sendingAddress(value: string) {
+  const address = value.trim().toLowerCase();
+  return address.length <= 254 &&
+    /^[a-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[a-z0-9!#$%&'*+/=?^_`{|}~-]+)*@(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/.test(address)
+    ? address
+    : null;
 }
 const freeMail = new Set([
   "gmail.com", "googlemail.com", "outlook.com", "hotmail.com", "live.com", "msn.com",

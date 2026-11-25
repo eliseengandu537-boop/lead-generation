@@ -156,6 +156,8 @@ async function dmarcCheck(domain: string, resolver: Resolver): Promise<DomainChe
 }
 
 const defaultResolver = () => new dns.Resolver({ timeout: 3000, tries: 2 });
+const consumerGoogle = new Set(["gmail.com", "googlemail.com"]);
+const consumerMicrosoft = new Set(["outlook.com", "hotmail.com", "live.com", "msn.com"]);
 
 /** Looks up SPF, DKIM and DMARC for the domain a mailbox sends from. */
 export async function checkSendingDomain(
@@ -165,6 +167,19 @@ export async function checkSendingDomain(
 ): Promise<DomainHealth> {
   const domain = email.split("@").pop()!.toLowerCase();
   const setup = providerSetup[provider === "MICROSOFT" ? "MICROSOFT" : "GMAIL"];
+  // Personal Gmail and Outlook addresses: the provider owns the domain and authenticates every
+  // message itself, so there is nothing for the client to publish.
+  const consumer = provider === "MICROSOFT" ? consumerMicrosoft : consumerGoogle;
+  if (consumer.has(domain)) {
+    const name = provider === "MICROSOFT" ? "Microsoft" : "Google";
+    return {
+      domain,
+      checkedAt: new Date().toISOString(),
+      spf: { status: "PASS", detail: `${name} publishes and manages SPF for ${domain}.` },
+      dkim: { status: "PASS", detail: `${name} signs every ${domain} message with DKIM.` },
+      dmarc: { status: "PASS", detail: `${name} publishes the DMARC policy for ${domain}.` },
+    };
+  }
   const guard = (check: () => Promise<DomainCheck>) =>
     check().catch(
       (error): DomainCheck => ({

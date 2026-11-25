@@ -11,7 +11,7 @@ import {
   pickSendingMailbox,
   warmupProgress,
 } from "../src/platform/mail/rotation";
-import { senderAllowed, sendingDomain } from "../src/platform/mail/domain";
+import { senderAllowed, sendingAddress, sendingDomain } from "../src/platform/mail/domain";
 
 const dnsError = (code: string) => Object.assign(new Error(code), { code });
 /** A resolver over a fixed zone: name → TXT strings, or an error code. */
@@ -172,4 +172,27 @@ test("extra sending domains are allowed only once an administrator adds them", (
   assert.equal(sendingDomain("https://GetAcme.co.za/"), "getacme.co.za");
   assert.equal(sendingDomain("gmail.com"), null);
   assert.equal(sendingDomain("not a domain"), null);
+});
+
+test("an administrator can approve one exact Gmail inbox without approving the rest of gmail.com", () => {
+  const organization = {
+    websiteUrl: "https://www.dcbspares.co.za/",
+    sendingDomains: ["dcbspares.com", "dcbspares@gmail.com"],
+  };
+  assert.equal(senderAllowed("dcbspares@gmail.com", organization), true);
+  assert.equal(senderAllowed("DCBSpares@Gmail.com", organization), true);
+  assert.equal(senderAllowed("someone.else@gmail.com", organization), false);
+  assert.equal(senderAllowed("warren@dcbspares.com", organization), true);
+  assert.equal(sendingAddress(" DCBSpares@Gmail.com "), "dcbspares@gmail.com");
+  assert.equal(sendingAddress("gmail.com"), null);
+  assert.equal(sendingAddress("two@@gmail.com"), null);
+});
+
+test("a personal Gmail or Outlook address needs no DNS setup", async () => {
+  const unused = zone({ "gmail.com": "ETIMEOUT", "_dmarc.gmail.com": "ETIMEOUT" });
+  const health = await checkSendingDomain("dcbspares@gmail.com", "GMAIL", unused);
+  assert.deepEqual([health.spf.status, health.dkim.status, health.dmarc.status], ["PASS", "PASS", "PASS"]);
+  assert.deepEqual(domainBlockers(health as never), []);
+  const outlook = await checkSendingDomain("dcb@outlook.com", "MICROSOFT", unused);
+  assert.equal(outlook.spf.status, "PASS");
 });
