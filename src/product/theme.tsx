@@ -15,10 +15,8 @@ function currentTheme(): Theme {
   } catch {
     /* Browser privacy settings may make storage unavailable. */
   }
-  if (sessionTheme) return sessionTheme;
-  return window.matchMedia("(prefers-color-scheme: dark)").matches
-    ? "dark"
-    : "light";
+  // The glass look is designed dark first; light stays one click away.
+  return sessionTheme ?? "dark";
 }
 
 function subscribe(callback: () => void) {
@@ -43,7 +41,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const theme = useSyncExternalStore(
     subscribe,
     currentTheme,
-    () => "light" as Theme,
+    () => "dark" as Theme,
   );
   useEffect(() => applyTheme(currentTheme()), [theme]);
   return children;
@@ -53,7 +51,7 @@ export function ThemeToggle({ compact = false }: { compact?: boolean }) {
   const theme = useSyncExternalStore(
     subscribe,
     currentTheme,
-    () => "light" as Theme,
+    () => "dark" as Theme,
   );
   useEffect(() => applyTheme(currentTheme()), [theme]);
   const next = theme === "dark" ? "light" : "dark";

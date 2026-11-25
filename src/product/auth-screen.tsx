@@ -7,6 +7,7 @@ import { ArrowRight, Check, LoaderCircle, Sparkles } from "lucide-react";
 import { api, text } from "./data";
 import { MonetticMark } from "./primitives";
 import { ThemeToggle } from "./theme";
+import { GlassBackdrop, GlassBrand } from "./glass-nav";
 export default function AuthScreen() {
   const search = useSearchParams();
   const [mode, setMode] = useState(
@@ -16,14 +17,10 @@ export default function AuthScreen() {
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
   return (
-    <div className="auth-page">
+    <div className="auth-page glass">
+      <GlassBackdrop />
       <aside className="auth-story">
-        <Link href="/login" className="brand">
-          <MonetticMark />
-          <span>
-            MONETTIC<span className="brand-dot">.</span>
-          </span>
-        </Link>
+        <GlassBrand href="/login" />
         <div className="auth-story-content">
           <p className="eyebrow">BUSINESS GROWTH. WITH PURPOSE.</p>
           <h1>

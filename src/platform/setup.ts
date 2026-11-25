@@ -123,10 +123,11 @@ export async function setupStatus(
   };
 }
 
-/** Setup progress for every client, for the admin Clients list. */
+/** Setup progress for every client, for the admin Clients list and the Workshop board. */
 export async function setupForAll() {
   const organizations = await controlDb.platformOrganization.findMany({
-    where: { workspace: { status: "ACTIVE" } },
+    // The agency's own calling desk is not a client and has nothing to set up.
+    where: { workspace: { status: "ACTIVE" }, onboardingStatus: { not: "AGENCY" } },
     select: { workspaceId: true },
   });
   const entries = await Promise.all(
@@ -135,7 +136,12 @@ export async function setupForAll() {
       const next = status.steps.find((step) => !step.done);
       return [
         workspaceId,
-        { done: status.done, total: status.total, next: next?.label ?? null },
+        {
+          done: status.done,
+          total: status.total,
+          next: next?.label ?? null,
+          steps: status.steps,
+        },
       ] as const;
     }),
   );

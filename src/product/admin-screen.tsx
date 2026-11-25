@@ -6,15 +6,16 @@ import {
   ArrowUpRight,
   Bot,
   CalendarClock,
+  ChartNoAxesCombined,
   Check,
   ChevronRight,
   CircleAlert,
   CreditCard,
   ExternalLink,
   Globe2,
+  Inbox,
   KeyRound,
   LayoutDashboard,
-  Menu,
   PenLine,
   Plus,
   Radar,
@@ -26,6 +27,7 @@ import {
   SquareKanban,
   TriangleAlert,
   Users,
+  Wrench,
   X,
 } from "lucide-react";
 import {
@@ -43,10 +45,10 @@ import {
   Badge,
   Empty,
   Loading,
-  MonetticMark,
   type Dialog,
 } from "./primitives";
 import { ThemeToggle } from "./theme";
+import { GlassBackdrop, GlassBrand, PillNav, RailButton } from "./glass-nav";
 import { TrendChart } from "./charts";
 import { ClientLoginDialog } from "./client-login-dialog";
 import AssistantScreen from "./assistant-screen";
@@ -54,6 +56,10 @@ import CallCentre from "./call-centre";
 import SalesPipeline from "./sales-pipeline";
 import ContentLibrary from "./content-library";
 import { AdminBookingBell } from "./admin-booking-bell";
+import AdminSchedule from "./admin-schedule";
+import AdminWorkshop from "./admin-workshop";
+import AdminFinance from "./admin-finance";
+import AdminReports from "./admin-reports";
 import {
   Funnel,
   Panel,
@@ -68,83 +74,131 @@ import {
 
 type SectionId =
   | "overview"
+  | "pipeline"
+  | "clients"
+  | "outreach"
+  | "schedule"
+  | "workshop"
+  | "finance"
+  | "reports"
   | "assistant"
   | "lead-generation"
-  | "outreach"
-  | "pipeline"
   | "content"
-  | "clients"
   | "settings";
+/** `menu` sections are the pills along the top; the others sit on the left icon rail. */
 const navigation: {
   id: SectionId;
   label: string;
+  title: string;
   icon: typeof Bot;
   detail: string;
-  group: "" | "GROW" | "MANAGE";
+  menu: boolean;
 }[] = [
   {
     id: "overview",
     label: "Overview",
+    title: "Overview",
     icon: LayoutDashboard,
     detail: "Every client, campaign and booked call in one view.",
-    group: "",
+    menu: true,
   },
   {
-    id: "assistant",
-    label: "AI Assistant",
-    icon: Bot,
-    detail: "Ask the assistant to work with your clients and outreach.",
-    group: "",
+    id: "pipeline",
+    label: "Pipeline",
+    title: "Sales pipeline",
+    icon: SquareKanban,
+    detail: "Drag a lead between stages, from first contact to a won deal.",
+    menu: true,
+  },
+  {
+    id: "clients",
+    label: "Customers",
+    title: "Customer directory",
+    icon: Users,
+    detail: "Your clients, their websites, logins, plans and results.",
+    menu: true,
+  },
+  {
+    id: "outreach",
+    label: "Outreach",
+    title: "Email outreach",
+    icon: Send,
+    detail: "Campaigns, replies and sending health for every client.",
+    menu: true,
+  },
+  {
+    id: "schedule",
+    label: "Schedule",
+    title: "Call schedule",
+    icon: CalendarClock,
+    detail: "Every booked sales call for your clients, week by week.",
+    menu: true,
+  },
+  {
+    id: "workshop",
+    label: "Workshop",
+    title: "Client workshop",
+    icon: Wrench,
+    detail: "Each client's setup, step by step, until their outreach is sending.",
+    menu: true,
+  },
+  {
+    id: "finance",
+    label: "Finance",
+    title: "Revenue overview",
+    icon: CreditCard,
+    detail: "What your clients pay, who is on trial and which plans need renewing.",
+    menu: true,
+  },
+  {
+    id: "reports",
+    label: "Reports",
+    title: "Client reports",
+    icon: ChartNoAxesCombined,
+    detail: "Results for each client over the period you choose, ready to export.",
+    menu: true,
   },
   {
     id: "lead-generation",
     label: "Lead Generation",
+    title: "Lead generation",
     icon: Radar,
     detail: "Find, research and score the right businesses for each client.",
-    group: "GROW",
+    menu: false,
   },
   {
-    id: "outreach",
-    label: "Email Outreach",
-    icon: Send,
-    detail: "Campaigns, replies and sending health for every client.",
-    group: "GROW",
-  },
-  {
-    id: "pipeline",
-    label: "Sales Pipeline",
-    icon: SquareKanban,
-    detail:
-      "Every opportunity, from first contact to a booked call and a won deal.",
-    group: "GROW",
+    id: "assistant",
+    label: "AI Assistant",
+    title: "AI assistant",
+    icon: Bot,
+    detail: "Ask the assistant to work with your clients and outreach.",
+    menu: false,
   },
   {
     id: "content",
     label: "Content",
+    title: "Content",
     icon: PenLine,
     detail: "Email scripts and templates for every client.",
-    group: "GROW",
-  },
-  {
-    id: "clients",
-    label: "Clients",
-    icon: Users,
-    detail: "Client accounts, websites, logins and plans.",
-    group: "MANAGE",
+    menu: false,
   },
   {
     id: "settings",
     label: "Settings",
+    title: "Settings",
     icon: Settings2,
     detail: "Platform connections and controls.",
-    group: "MANAGE",
+    menu: false,
   },
 ];
 /** Old section names still work in links, such as booking emails (?section=call-centre). */
 const legacySections: Record<string, SectionId> = {
   command: "overview",
   analytics: "overview",
-  subscriptions: "overview",
+  subscriptions: "finance",
+  billing: "finance",
+  customers: "clients",
+  calendar: "schedule",
   websites: "clients",
   leads: "lead-generation",
   automation: "lead-generation",
@@ -157,7 +211,7 @@ function sectionFrom(value: string | null): SectionId | null {
   if (navigation.some((item) => item.id === value)) return value as SectionId;
   return legacySections[value] ?? null;
 }
-const periodic: SectionId[] = ["overview", "lead-generation", "outreach"];
+const periodic: SectionId[] = ["overview", "lead-generation", "outreach", "reports"];
 const campaignStatuses = [
   "ALL",
   "DRAFT",
@@ -203,7 +257,6 @@ export default function AdminScreen() {
   const [revision, setRevision] = useState(0);
   const [tab, setTab] = useState<SectionId>("overview");
   const [outreachTab, setOutreachTab] = useState("campaigns");
-  const [mobile, setMobile] = useState(false);
   const [days, setDays] = useState("30");
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
@@ -211,6 +264,7 @@ export default function AdminScreen() {
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("ALL");
   const [sort, setSort] = useState("activity");
+  const [clientView, setClientView] = useState<"grid" | "table">("grid");
   const [selected, setSelected] = useState("");
   const [detail, setDetail] = useState<RecordValue | null>(null);
   const [detailError, setDetailError] = useState("");
@@ -292,16 +346,13 @@ export default function AdminScreen() {
     return () => controller.abort();
   }, [selected, revision, period]);
   useEffect(() => {
-    if (!selected && !mobile) return;
+    if (!selected) return;
     function onKey(event: KeyboardEvent) {
-      if (event.key === "Escape") {
-        setSelected("");
-        setMobile(false);
-      }
+      if (event.key === "Escape") setSelected("");
     }
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [selected, mobile]);
+  }, [selected]);
   useEffect(() => {
     if (!selected) return;
     const previous = document.activeElement as HTMLElement | null;
@@ -347,7 +398,6 @@ export default function AdminScreen() {
     setTab(next);
     if (next === "outreach")
       setOutreachTab(sub ?? (id === "inbox" ? "inbox" : "campaigns"));
-    setMobile(false);
     setSearch("");
     setStatus("ALL");
     setSelected("");
@@ -1124,78 +1174,6 @@ export default function AdminScreen() {
             )}
           </Panel>
         </div>
-        <Panel
-          id="plans"
-          title="Plans and billing"
-          detail="Subscription plans, plus what clients used in the selected period."
-          action={
-            <button className="primary" onClick={() => planEditor()}>
-              <Plus size={16} />
-              Create plan
-            </button>
-          }
-        >
-          <div className="adm-plans-layout">
-            <div className="adm-plans">
-              {plans.map((plan) => {
-                const subscribed = organizations.filter(
-                  (item) => object(item.subscription).planId === plan.id,
-                ).length;
-                return (
-                  <article className="adm-plan" key={text(plan.id)}>
-                    <header>
-                      <h3>{text(plan.name)}</h3>
-                      <Badge value={plan.available ? "AVAILABLE" : "PRIVATE"} />
-                    </header>
-                    <p className="adm-plan-price">
-                      {plan.priceMinor === null
-                        ? "Arranged pricing"
-                        : `${text(plan.currency)} ${(number(plan.priceMinor) / 100).toLocaleString("en-ZA", { minimumFractionDigits: 0 })}`}
-                      {plan.priceMinor !== null && <small> / month</small>}
-                    </p>
-                    <dl>
-                      <div>
-                        <dt>Emails a day</dt>
-                        <dd>{compact(plan.dailyEmails)}</dd>
-                      </div>
-                      <div>
-                        <dt>Leads a month</dt>
-                        <dd>{compact(plan.monthlyProspects)}</dd>
-                      </div>
-                      <div>
-                        <dt>Clients on plan</dt>
-                        <dd>{compact(subscribed)}</dd>
-                      </div>
-                    </dl>
-                    <button className="text-button" onClick={() => planEditor(plan)}>
-                      Edit plan <ChevronRight size={14} />
-                    </button>
-                  </article>
-                );
-              })}
-              {!plans.length && (
-                <Empty
-                  title="No plans yet."
-                  detail="Create a plan, then assign it to a client."
-                />
-              )}
-            </div>
-            <div className="adm-usage">
-              <h3>Usage, {rangeLabel}</h3>
-              {rows(insights.usage).length ? (
-                <Funnel
-                  showRates={false}
-                  steps={rows(insights.usage).map((item) => ({
-                    label: label(item.kind),
-                    value: item.quantity,
-                  }))}
-                />
-              ) : (
-                <p className="muted">No usage recorded in this period.</p>
-              )}
-            </div>
-          </div>
-        </Panel>
       </>
     );
   }
@@ -1276,8 +1254,91 @@ export default function AdminScreen() {
             <span className="muted adm-toolbar-count">
               {filtered.length} of {directory.length}
             </span>
+            <div className="adm-period" role="group" aria-label="Layout">
+              {(["grid", "table"] as const).map((value) => (
+                <button
+                  key={value}
+                  className={clientView === value ? "is-on" : ""}
+                  aria-pressed={clientView === value}
+                  onClick={() => setClientView(value)}
+                >
+                  {value === "grid" ? "Grid" : "Table"}
+                </button>
+              ))}
+            </div>
           </div>
-          {filtered.length ? (
+          {filtered.length && clientView === "grid" ? (
+            <div className="adm-cust-grid">
+              {filtered.map((row, index) => {
+                const organization = orgById.get(text(row.workspaceId));
+                const logins = rows(organization?.clientLogins);
+                const progress = object(setup[text(row.workspaceId)]);
+                const complete =
+                  number(progress.total) > 0 &&
+                  number(progress.done) >= number(progress.total);
+                const website = text(row.websiteUrl, "");
+                return (
+                  <article
+                    className="adm-cust"
+                    key={text(row.workspaceId)}
+                    style={{ animationDelay: `${Math.min(index, 11) * 45}ms` }}
+                  >
+                    <header>
+                      <span className="adm-cust-avatar">{text(row.name).slice(0, 2).toUpperCase()}</span>
+                      {clientMenu(row)}
+                    </header>
+                    <button className="adm-cust-name" onClick={() => inspect(text(row.workspaceId))}>
+                      {text(row.name)}
+                    </button>
+                    <p className="adm-cust-sub">
+                      {text(logins[0]?.email, "") || text(row.accountEmail, "") || "No client login yet"}
+                    </p>
+                    <div className="adm-cust-box">
+                      <div>
+                        <small>Leads</small>
+                        <b>{compact(row.discovered)}</b>
+                      </div>
+                      <div>
+                        <small>Sent</small>
+                        <b>{compact(row.sent)}</b>
+                      </div>
+                      <div>
+                        <small>Replies</small>
+                        <b>{compact(row.replies)}</b>
+                      </div>
+                    </div>
+                    <div className="adm-cust-plan">{planCell(row)}</div>
+                    {progress.total ? (
+                      <div className="adm-cust-setup">
+                        <span>
+                          {complete ? "Sending" : `Setup ${compact(progress.done)} of ${compact(progress.total)}`}
+                          {!complete && <small> · Next: {text(progress.next)}</small>}
+                        </span>
+                        <Progress value={progress.done} max={progress.total} />
+                      </div>
+                    ) : null}
+                    <footer>
+                      {website ? (
+                        <a href={website} target="_blank" rel="noopener noreferrer" className="adm-client-site">
+                          {website.replace(/^https?:\/\/(www\.)?/, "").replace(/\/$/, "")}
+                          <ExternalLink size={11} />
+                        </a>
+                      ) : (
+                        <small className="muted">No website yet</small>
+                      )}
+                      <Link
+                        className={`button${complete ? "" : " primary"}`}
+                        href={clientLink(row.workspaceId, "outreach")}
+                      >
+                        {complete ? "Open" : "Continue"}
+                        <ArrowUpRight size={14} />
+                      </Link>
+                    </footer>
+                  </article>
+                );
+              })}
+            </div>
+          ) : filtered.length ? (
             <div className="table-scroll">
               <table className="adm-table adm-clients-table">
                 <thead>
@@ -1963,106 +2024,80 @@ export default function AdminScreen() {
       <span className="nav-count">{compact(bookings.nextSevenDays)}</span>
     ) : null;
   return (
-    <div className={`app-shell admin-shell adm-v2 ${mobile ? "nav-open" : ""}`}>
+    <div className="app-shell admin-shell adm-v2 glass">
+      <GlassBackdrop />
       <a className="skip-link" href="#main-content">
         Skip to content
       </a>
-      {mobile && (
-        <button
-          className="mobile-scrim"
-          aria-label="Close navigation"
-          onClick={() => setMobile(false)}
+      <header className="g-top">
+        <GlassBrand href="/admin" />
+        <PillNav
+          label="Admin sections"
+          active={tab}
+          onSelect={(id) => navigate(id)}
+          items={navigation
+            .filter((item) => item.menu)
+            .map(({ id, label: title }) => ({
+              id,
+              label: title,
+              badge: navCount(id),
+            }))}
         />
-      )}
-      <aside className="sidebar admin-sidebar" aria-label="Platform navigation">
-        <div className="sidebar-brand">
-          <Link href="/admin" className="brand">
-            <MonetticMark />
-            <span>
-              MONETTIC<span className="brand-dot">.</span>
-            </span>
-          </Link>
+        <div className="g-actions">
           <button
-            className="icon-button mobile-menu"
-            aria-label="Close navigation"
-            onClick={() => setMobile(false)}
+            className="g-round"
+            aria-label="Open the email inbox"
+            title="Email inbox"
+            onClick={() => navigate("outreach", "inbox")}
           >
-            <X size={19} />
+            <Inbox size={17} />
           </button>
+          <AdminBookingBell openMeetings={() => navigate("pipeline")} />
+          <button
+            className="g-round"
+            aria-label="Refresh platform data"
+            title="Refresh"
+            disabled={loading}
+            onClick={() => setRevision((value) => value + 1)}
+          >
+            <RefreshCw size={17} className={loading ? "spin" : ""} />
+          </button>
+          <span className="g-avatar" title="Platform administrator">
+            A
+          </span>
         </div>
-        <div className="admin-scope">
-          <ShieldCheck size={15} />
-          <span>Agency admin</span>
-        </div>
-        <nav aria-label="Admin sections">
-          {(["", "GROW", "MANAGE"] as const).map((group) => (
-            <div className="adm-nav-group" key={group || "main"}>
-              {group && <p className="nav-label">{group}</p>}
-              {navigation
-                .filter((item) => item.group === group)
-                .map(({ id, label: title, icon: Icon }) => (
-                  <button
-                    key={id}
-                    className={`nav-item ${tab === id ? "active" : ""}`}
-                    aria-current={tab === id ? "page" : undefined}
-                    onClick={() => navigate(id)}
-                  >
-                    <Icon size={18} />
-                    <span>{title}</span>
-                    {navCount(id)}
-                  </button>
-                ))}
-            </div>
-          ))}
-        </nav>
-        <div className="sidebar-bottom">
-          <Link href="/?client=1" className="nav-item">
-            <ArrowLeft size={18} />
-            <span>Client workspace</span>
-          </Link>
-          <div className="sidebar-profile">
-            <span className="avatar">A</span>
-            <div>
-              <b>Platform administrator</b>
-              <small>Super admin access</small>
-            </div>
-            <ShieldCheck size={16} />
-          </div>
-        </div>
-      </aside>
-      <div className="workspace-main admin-main">
-        <header className="topbar">
-          <div className="breadcrumbs">
-            <button
-              className="icon-button mobile-menu"
-              aria-label="Open navigation"
-              onClick={() => setMobile(true)}
-            >
-              <Menu size={21} />
-            </button>
-            <span>Admin</span>
-            <span className="breadcrumb-divider">/</span>
-            <b>{active.label}</b>
-          </div>
-          <div className="topbar-actions">
-            <ThemeToggle compact />
-            <AdminBookingBell openMeetings={() => navigate("pipeline")} />
-            <button
-              className="icon-button"
-              aria-label="Refresh platform data"
-              disabled={loading}
-              onClick={() => setRevision((value) => value + 1)}
-            >
-              <RefreshCw size={17} className={loading ? "spin" : ""} />
-            </button>
-            <span className="topbar-avatar">A</span>
-          </div>
-        </header>
+      </header>
+      <div className="g-body">
+        <aside className="g-rail" aria-label="Quick actions">
+          <RailButton label="Add client" icon={<Plus size={18} />} onClick={() => setClientLogin({})} />
+          {navigation
+            .filter((item) => !item.menu && item.id !== "settings")
+            .map(({ id, label: title, icon: Icon }) => (
+              <RailButton
+                key={id}
+                label={title}
+                icon={<Icon size={18} />}
+                active={tab === id}
+                onClick={() => navigate(id)}
+              />
+            ))}
+          <RailButton label="Client workspace" icon={<ArrowLeft size={18} />} href="/?client=1" />
+          <span className="g-rail-divider" aria-hidden="true" />
+          <RailButton label="Your account" icon={<ShieldCheck size={18} />} href="/account" />
+          <RailButton
+            label="Settings"
+            icon={<Settings2 size={18} />}
+            active={tab === "settings"}
+            onClick={() => navigate("settings")}
+          />
+          <ThemeToggle compact />
+        </aside>
+        <div className="g-main">
         <main className="page-content admin-content" id="main-content">
           {tab !== "assistant" && (
             <div className="adm-head">
               <div>
-                <h1>{active.label}</h1>
+                <h1>{active.title}</h1>
                 <p>{active.detail}</p>
               </div>
               <div className="adm-head-actions">
@@ -2140,6 +2175,12 @@ export default function AdminScreen() {
                     </button>
                   </>
                 )}
+                {tab === "finance" && (
+                  <button className="primary" onClick={() => planEditor()}>
+                    <Plus size={16} />
+                    Create plan
+                  </button>
+                )}
                 {tab === "lead-generation" && workspaceTools("discovery", "Find leads")}
                 {tab === "outreach" &&
                   (outreachTab === "accounts"
@@ -2185,6 +2226,34 @@ export default function AdminScreen() {
               {tab === "lead-generation" && renderLeadGeneration()}
               {tab === "outreach" && renderOutreach()}
               {tab === "pipeline" && <SalesPipeline businesses={organizations} />}
+              {tab === "schedule" && <AdminSchedule businesses={organizations} />}
+              {tab === "workshop" && (
+                <AdminWorkshop
+                  clients={directory.filter((row) => row.status === "ACTIVE")}
+                  setup={setup}
+                  onPlan={(id) => {
+                    const organization = orgById.get(id);
+                    if (organization) subscriptionEditor(organization);
+                  }}
+                />
+              )}
+              {tab === "finance" && (
+                <AdminFinance
+                  organizations={organizations}
+                  plans={plans}
+                  usage={rows(insights.usage)}
+                  rangeLabel={rangeLabel}
+                  onManage={subscriptionEditor}
+                  onEditPlan={planEditor}
+                />
+              )}
+              {tab === "reports" && (
+                <AdminReports
+                  directory={directory.filter((row) => row.onboardingStatus !== "AGENCY")}
+                  period={period}
+                  rangeLabel={rangeLabel}
+                />
+              )}
               {tab === "content" && <ContentLibrary />}
               {tab === "settings" && renderSettings()}
             </div>
@@ -2197,6 +2266,7 @@ export default function AdminScreen() {
             <span>Updated {date(insights.generatedAt, true)}</span>
           </footer>
         </main>
+        </div>
       </div>
       {selected && (
         <div className="admin-inspector-backdrop">

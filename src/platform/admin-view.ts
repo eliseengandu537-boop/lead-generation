@@ -168,6 +168,8 @@ export async function adminInsights(query: URLSearchParams) {
        GREATEST(o."updatedAt",(SELECT max(a."createdAt") FROM "PlatformActivity" a WHERE a."workspaceId"=o."workspaceId"),(SELECT max(m."createdAt") FROM "PlatformMailMessage" m WHERE m."workspaceId"=o."workspaceId")) AS "lastActivity"
       FROM "PlatformOrganization" o JOIN "Workspace" w ON w.id=o."workspaceId"
       WHERE (${workspaceId}::text IS NULL OR o."workspaceId"=${workspaceId})
+       -- The agency's own calling desk is not a client, so the client lists leave it out.
+       AND (${workspaceId}::text IS NOT NULL OR o."onboardingStatus"<>'AGENCY')
       ORDER BY o."createdAt" DESC LIMIT 500`,
     controlDb.$queryRaw<SeriesRow[]>`
       WITH events AS (

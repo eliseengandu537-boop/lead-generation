@@ -1,15 +1,12 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
 import { signOut } from "next-auth/react";
-import Link from "next/link";
 import {
-  ArrowUpRight,
   Bell,
   Building2,
   ChevronDown,
   Inbox,
   LogOut,
-  Menu,
   Plus,
   RefreshCw,
   Send,
@@ -29,6 +26,7 @@ import {
 import { ActionDialog, type Dialog, Loading, MonetticMark } from "./primitives";
 import { ResourceView } from "./views";
 import { ThemeToggle } from "./theme";
+import { GlassBackdrop, GlassBrand, PillNav, RailButton } from "./glass-nav";
 
 /** The client workspace is built around one job: email outreach. Each menu section can hold
  * several views shown as tabs; `extra` views stay reachable by link but are not in the menu. */
@@ -95,7 +93,6 @@ export default function MonetticApp() {
   const [tab, setTab] = useState("outreach");
   const [value, setValue] = useState<RecordValue>({});
   const [loading, setLoading] = useState(true);
-  const [mobile, setMobile] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [dialog, setDialog] = useState<Dialog | null>(null);
@@ -188,7 +185,6 @@ export default function MonetticApp() {
     address.searchParams.set("view", next);
     window.history.replaceState(null, "", address);
     setTab(next);
-    setMobile(false);
     setNotice("");
     setDialog(null);
   }
@@ -238,25 +234,13 @@ export default function MonetticApp() {
     });
   }
   return (
-    <div className="orbit-app adm-v2 ws-v2">
-      {mobile && (
-        <button
-          className="mobile-scrim"
-          aria-label="Close navigation"
-          onClick={() => setMobile(false)}
-        />
-      )}
-      <aside className={`sidebar ${mobile ? "is-open" : ""}`}>
-        <Link href="/" className="brand" aria-label="Monettic home">
-          <MonetticMark />
-          <span>
-            MONETTIC<span className="brand-dot">.</span>
-          </span>
-        </Link>
-        <div className="organization-picker">
-          <Building2 size={17} />
-          <div>
-            <span>YOUR WORKSPACE</span>
+    <div className="orbit-app adm-v2 ws-v2 glass">
+      <GlassBackdrop />
+      <header className="g-top">
+        <div className="g-brand-group">
+          <GlassBrand href="/" />
+          <label className="g-workspace">
+            <Building2 size={15} />
             <select
               aria-label="Choose business workspace"
               value={organizationId}
@@ -276,96 +260,67 @@ export default function MonetticApp() {
                 <option value="">Choose a workspace</option>
               )}
             </select>
-          </div>
-          <ChevronDown size={14} />
+            <ChevronDown size={14} />
+          </label>
         </div>
-        <nav aria-label="Main navigation">
-          {[""].map((group) => (
-            <div className="ws-nav-group" key={group || "main"}>
-              {group && <p className="nav-label">{group}</p>}
-              {sections
-                .filter((entry) => entry.group === group)
-                .map((entry) => (
-                  <button
-                    key={entry.id}
-                    className={
-                      entry.id === section.id ? "nav-link active" : "nav-link"
-                    }
-                    aria-current={entry.id === section.id ? "page" : undefined}
-                    onClick={() => navigate(entry.views[0].id)}
-                  >
-                    <entry.icon size={18} strokeWidth={1.7} />
-                    <span>{entry.label}</span>
-                  </button>
-                ))}
-            </div>
+        <PillNav
+          label="Main navigation"
+          active={section.id}
+          onSelect={(id) => {
+            const entry = sections.find((item) => item.id === id);
+            if (entry) navigate(entry.views[0].id);
+          }}
+          items={sections.map((entry) => ({ id: entry.id, label: entry.label }))}
+        />
+        <div className="g-actions">
+          <button
+            className="g-round"
+            onClick={refresh}
+            aria-label="Refresh workspace"
+            title="Refresh"
+            disabled={loading}
+          >
+            <RefreshCw size={17} className={loading ? "spin" : ""} />
+          </button>
+          <button
+            className="g-round"
+            aria-label="View notifications"
+            title="Notifications"
+            onClick={() => navigate("notifications")}
+          >
+            <Bell size={18} />
+          </button>
+          <span className="g-avatar" title={session?.user.email || "Your account"}>
+            {session?.user.name?.slice(0, 1).toUpperCase() || "O"}
+          </span>
+        </div>
+      </header>
+      <div className="g-body">
+        <aside className="g-rail" aria-label="Quick actions">
+          {sections.map((entry) => (
+            <RailButton
+              key={entry.id}
+              label={entry.label}
+              icon={<entry.icon size={18} strokeWidth={1.7} />}
+              active={entry.id === section.id}
+              onClick={() => navigate(entry.views[0].id)}
+            />
           ))}
-        </nav>
-        <div className="sidebar-bottom">
+          <span className="g-rail-divider" aria-hidden="true" />
           {!demoLogin && (
-            <button className="new-workspace" onClick={createOrganization}>
-              <Plus size={16} />
-              New workspace
-            </button>
+            <RailButton label="New workspace" icon={<Plus size={18} />} onClick={createOrganization} />
           )}
           {session?.user.superAdmin && (
-            <Link href="/admin" className="nav-link">
-              <ShieldCheck size={17} />
-              Platform administration
-              <ArrowUpRight size={13} />
-            </Link>
+            <RailButton label="Platform administration" icon={<ShieldCheck size={18} />} href="/admin" />
           )}
-          <button
-            className="profile-button"
+          <RailButton
+            label="Sign out"
+            icon={<LogOut size={18} />}
             onClick={() => void signOut({ callbackUrl: "/login" })}
-          >
-            <span className="avatar">
-              {session?.user.name?.slice(0, 1).toUpperCase() || "O"}
-            </span>
-            <span>
-              <b>{session?.user.name || "Your account"}</b>
-              <small>{session?.user.email || ""}</small>
-            </span>
-            <LogOut size={16} />
-          </button>
-        </div>
-      </aside>
-      <div className="workspace-main">
-        <header className="topbar">
-          <div className="topbar-breadcrumb">
-            <button
-              className="icon-button mobile-menu"
-              aria-label="Open navigation"
-              onClick={() => setMobile(true)}
-            >
-              <Menu size={21} />
-            </button>
-            <span>{organization?.name || "Your workspace"}</span>
-            <span className="breadcrumb-divider">/</span>
-            <b>{section.label}</b>
-          </div>
-          <div className="topbar-actions">
-            <ThemeToggle compact />
-            <button
-              className="icon-button"
-              onClick={refresh}
-              aria-label="Refresh workspace"
-              disabled={loading}
-            >
-              <RefreshCw size={17} className={loading ? "spin" : ""} />
-            </button>
-            <button
-              className="icon-button"
-              aria-label="View notifications"
-              onClick={() => navigate("notifications")}
-            >
-              <Bell size={18} />
-            </button>
-            <span className="topbar-avatar">
-              {session?.user.name?.slice(0, 1).toUpperCase() || "O"}
-            </span>
-          </div>
-        </header>
+          />
+          <ThemeToggle compact />
+        </aside>
+        <div className="g-main">
         <main className="page-content" id="main-content">
           {organization?.isDemo && (
             <div className="alert ws-demo-note" role="note">
@@ -431,6 +386,7 @@ export default function MonetticApp() {
             />
           )}
         </main>
+        </div>
       </div>
       {dialog && <ActionDialog dialog={dialog} close={() => setDialog(null)} />}
     </div>
